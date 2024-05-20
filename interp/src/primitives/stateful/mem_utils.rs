@@ -1,3 +1,4 @@
+use baa::{BitVecOps, BitVecValue};
 use calyx_ir as ir;
 
 use crate::{
@@ -5,7 +6,6 @@ use crate::{
     primitives::prim_utils::{get_inputs, get_params},
     serialization::Shape,
     validate_friendly,
-    values::Value,
 };
 
 pub trait MemBinder: Sized {
@@ -13,11 +13,11 @@ pub trait MemBinder: Sized {
 
     fn get_idx(
         &self,
-        inputs: &[(ir::Id, &Value)],
+        inputs: &[(ir::Id, &BitVecValue)],
         allow_invalid_memory_access: bool,
     ) -> InterpreterResult<u64>;
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]);
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]);
 
     fn get_dimensions(&self) -> Shape;
 
@@ -47,7 +47,7 @@ impl MemBinder for MemD1 {
 
     fn get_idx(
         &self,
-        inputs: &[(ir::Id, &Value)],
+        inputs: &[(ir::Id, &BitVecValue)],
         allow_invalid_memory_access: bool,
     ) -> InterpreterResult<u64> {
         get_inputs![inputs;
@@ -66,14 +66,14 @@ impl MemBinder for MemD1 {
         }
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate_friendly![inputs;
             addr0: self.idx_size
         ]
     }
 
     fn get_dimensions(&self) -> Shape {
-        Shape::D1(self.size as usize)
+        Shape::D1(self.size)
     }
 
     fn get_array_length(&self) -> usize {
@@ -108,7 +108,7 @@ impl MemBinder for MemD2 {
 
     fn get_idx(
         &self,
-        inputs: &[(ir::Id, &Value)],
+        inputs: &[(ir::Id, &BitVecValue)],
         allow_invalid_memory_access: bool,
     ) -> InterpreterResult<u64> {
         get_inputs![inputs;
@@ -132,7 +132,7 @@ impl MemBinder for MemD2 {
         }
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate_friendly![inputs;
             addr0: self.d0_idx_size,
             addr1: self.d1_idx_size
@@ -140,7 +140,7 @@ impl MemBinder for MemD2 {
     }
 
     fn get_dimensions(&self) -> Shape {
-        (self.d0_size as usize, self.d1_size as usize).into()
+        (self.d0_size, self.d1_size).into()
     }
 
     fn get_array_length(&self) -> usize {
@@ -182,7 +182,7 @@ impl MemBinder for MemD3 {
 
     fn get_idx(
         &self,
-        inputs: &[(ir::Id, &Value)],
+        inputs: &[(ir::Id, &BitVecValue)],
         allow_invalid_memory_access: bool,
     ) -> InterpreterResult<u64> {
         get_inputs![inputs;
@@ -207,7 +207,7 @@ impl MemBinder for MemD3 {
         }
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate_friendly![inputs;
             addr0: self.d0_idx_size,
             addr1: self.d1_idx_size,
@@ -216,12 +216,7 @@ impl MemBinder for MemD3 {
     }
 
     fn get_dimensions(&self) -> Shape {
-        (
-            self.d0_size as usize,
-            self.d1_size as usize,
-            self.d2_size as usize,
-        )
-            .into()
+        (self.d0_size, self.d1_size, self.d2_size).into()
     }
 
     fn get_array_length(&self) -> usize {
@@ -269,7 +264,7 @@ impl MemBinder for MemD4 {
 
     fn get_idx(
         &self,
-        inputs: &[(ir::Id, &Value)],
+        inputs: &[(ir::Id, &BitVecValue)],
         allow_invalid_memory_access: bool,
     ) -> InterpreterResult<u64> {
         get_inputs![inputs;
@@ -303,7 +298,7 @@ impl MemBinder for MemD4 {
         }
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate_friendly![inputs;
             addr0: self.d0_idx_size,
             addr1: self.d1_idx_size,
@@ -313,13 +308,7 @@ impl MemBinder for MemD4 {
     }
 
     fn get_dimensions(&self) -> Shape {
-        (
-            self.d0_size as usize,
-            self.d1_size as usize,
-            self.d2_size as usize,
-            self.d3_size as usize,
-        )
-            .into()
+        (self.d0_size, self.d1_size, self.d2_size, self.d3_size).into()
     }
 
     fn get_array_length(&self) -> usize {

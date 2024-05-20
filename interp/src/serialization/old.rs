@@ -1,3 +1,4 @@
+use baa::{BitVecOps, BitVecValue, WidthInt};
 use fraction::Fraction;
 use itertools::Itertools;
 use serde::Serialize;
@@ -5,17 +6,17 @@ use std::fmt::{Debug, Display};
 
 use crate::{
     flatten::flat_ir::cell_prototype::MemoryDimensions, primitives::Primitive,
-    structures::state_views::FullySerialize, utils::PrintCode, values::Value,
+    structures::state_views::FullySerialize, utils::PrintCode,
 };
 
 /// An enum wrapping over a tuple representing the shape of a multi-dimensional
 /// array
 #[derive(Clone)]
 pub enum Shape {
-    D1(usize),
-    D2(usize, usize),
-    D3(usize, usize, usize),
-    D4(usize, usize, usize, usize),
+    D1(u64),
+    D2(u64, u64),
+    D3(u64, u64, u64),
+    D4(u64, u64, u64, u64),
 }
 
 impl Shape {
@@ -35,38 +36,39 @@ impl Shape {
     /// returns the total number of entries in the memory, i.e. it's size based
     /// on the dimensions of it.
     pub fn size(&self) -> usize {
-        match self {
+        let res = match self {
             Shape::D1(d0) => *d0,
             Shape::D2(d0, d1) => d0 * d1,
             Shape::D3(d0, d1, d2) => d0 * d1 * d2,
             Shape::D4(d0, d1, d2, d3) => d0 * d1 * d2 * d3,
-        }
+        };
+        res as usize
     }
 }
-impl From<usize> for Shape {
-    fn from(u: usize) -> Self {
+impl From<u64> for Shape {
+    fn from(u: u64) -> Self {
         Shape::D1(u)
     }
 }
-impl From<(usize,)> for Shape {
-    fn from(u: (usize,)) -> Self {
+impl From<(u64,)> for Shape {
+    fn from(u: (u64,)) -> Self {
         Shape::D1(u.0)
     }
 }
-impl From<(usize, usize)> for Shape {
-    fn from(u: (usize, usize)) -> Self {
+impl From<(u64, u64)> for Shape {
+    fn from(u: (u64, u64)) -> Self {
         Shape::D2(u.0, u.1)
     }
 }
 
-impl From<(usize, usize, usize)> for Shape {
-    fn from(u: (usize, usize, usize)) -> Self {
+impl From<(u64, u64, u64)> for Shape {
+    fn from(u: (u64, u64, u64)) -> Self {
         Shape::D3(u.0, u.1, u.2)
     }
 }
 
-impl From<(usize, usize, usize, usize)> for Shape {
-    fn from(u: (usize, usize, usize, usize)) -> Self {
+impl From<(u64, u64, u64, u64)> for Shape {
+    fn from(u: (u64, u64, u64, u64)) -> Self {
         Shape::D4(u.0, u.1, u.2, u.3)
     }
 }
@@ -74,22 +76,16 @@ impl From<(usize, usize, usize, usize)> for Shape {
 impl From<&MemoryDimensions> for Shape {
     fn from(value: &MemoryDimensions) -> Self {
         match value {
-            MemoryDimensions::D1 { d0_size, .. } => {
-                Shape::D1(*d0_size as usize)
-            }
+            MemoryDimensions::D1 { d0_size, .. } => Shape::D1(*d0_size as u64),
             MemoryDimensions::D2 {
                 d0_size, d1_size, ..
-            } => Shape::D2(*d0_size as usize, *d1_size as usize),
+            } => Shape::D2(*d0_size as u64, *d1_size as u64),
             MemoryDimensions::D3 {
                 d0_size,
                 d1_size,
                 d2_size,
                 ..
-            } => Shape::D3(
-                *d0_size as usize,
-                *d1_size as usize,
-                *d2_size as usize,
-            ),
+            } => Shape::D3(*d0_size as u64, *d1_size as u64, *d2_size as u64),
             MemoryDimensions::D4 {
                 d0_size,
                 d1_size,
@@ -97,10 +93,10 @@ impl From<&MemoryDimensions> for Shape {
                 d3_size,
                 ..
             } => Shape::D4(
-                *d0_size as usize,
-                *d1_size as usize,
-                *d2_size as usize,
-                *d3_size as usize,
+                *d0_size as u64,
+                *d1_size as u64,
+                *d2_size as u64,
+                *d3_size as u64,
             ),
         }
     }
@@ -115,7 +111,7 @@ pub enum Entry {
     U(u64),
     I(i64),
     Frac(Fraction),
-    Value(Value),
+    Value(BitVecValue),
 }
 
 impl From<u64> for Entry {
@@ -137,12 +133,16 @@ impl From<Fraction> for Entry {
 }
 
 impl Entry {
-    pub fn from_val_code(val: &Value, code: &PrintCode) -> Self {
+    pub fn from_val_code(val: &BitVecValue, code: &PrintCode) -> Self {
         match code {
-            PrintCode::Unsigned => val.as_u64().into(),
-            PrintCode::Signed => val.as_i64().into(),
-            PrintCode::UFixed(f) => val.as_ufp(*f).into(),
-            PrintCode::SFixed(f) => val.as_sfp(*f).into(),
+            PrintCode::Unsigned => val.to_u64().unwrap().into(),
+            PrintCode::Signed => val.to_i64().unwrap().into(),
+            PrintCode::UFixed(f) => {
+                Entry::Frac(val.to_unsigned_fixed_point(*f as WidthInt))
+            }
+            PrintCode::SFixed(f) => {
+                Entry::Frac(val.to_signed_fixed_point(*f as WidthInt))
+            }
             PrintCode::Binary => Entry::Value(val.clone()),
         }
     }
@@ -154,7 +154,7 @@ impl Display for Entry {
             Entry::U(v) => write!(f, "{}", v),
             Entry::I(v) => write!(f, "{}", v),
             Entry::Frac(v) => write!(f, "{}", v),
-            Entry::Value(v) => write!(f, "{}", v),
+            Entry::Value(v) => write!(f, "{}", v.to_bit_str()),
         }
     }
 }
@@ -212,7 +212,7 @@ impl Serialize for Serializable {
                     Shape::D2(_d0, d1) => {
                         let mem = arr
                             .iter()
-                            .chunks(*d1)
+                            .chunks(*d1 as usize)
                             .into_iter()
                             .map(|x| x.into_iter().collect::<Vec<_>>())
                             .collect::<Vec<_>>();
@@ -221,11 +221,11 @@ impl Serialize for Serializable {
                     Shape::D3(_d0, d1, d2) => {
                         let mem = arr
                             .iter()
-                            .chunks(d1 * d2)
+                            .chunks((d1 * d2) as usize)
                             .into_iter()
                             .map(|x| {
                                 x.into_iter()
-                                    .chunks(*d2)
+                                    .chunks(*d2 as usize)
                                     .into_iter()
                                     .map(|y| y.into_iter().collect::<Vec<_>>())
                                     .collect::<Vec<_>>()
@@ -236,15 +236,15 @@ impl Serialize for Serializable {
                     Shape::D4(_d0, d1, d2, d3) => {
                         let mem = arr
                             .iter()
-                            .chunks(d2 * d1 * d3)
+                            .chunks((d2 * d1 * d3) as usize)
                             .into_iter()
                             .map(|x| {
                                 x.into_iter()
-                                    .chunks(d2 * d3)
+                                    .chunks((d2 * d3) as usize)
                                     .into_iter()
                                     .map(|y| {
                                         y.into_iter()
-                                            .chunks(*d3)
+                                            .chunks(*d3 as usize)
                                             .into_iter()
                                             .map(|z| {
                                                 z.into_iter()
@@ -279,7 +279,7 @@ fn format_array(arr: &[Entry], shape: &Shape) -> String {
         Shape::D2(_d0, d1) => {
             let mem = arr
                 .iter()
-                .chunks(*d1)
+                .chunks(*d1 as usize)
                 .into_iter()
                 .map(|x| x.into_iter().collect::<Vec<_>>())
                 .collect::<Vec<_>>();
@@ -288,11 +288,11 @@ fn format_array(arr: &[Entry], shape: &Shape) -> String {
         Shape::D3(_d0, d1, d2) => {
             let mem = arr
                 .iter()
-                .chunks(d1 * d2)
+                .chunks((d1 * d2) as usize)
                 .into_iter()
                 .map(|x| {
                     x.into_iter()
-                        .chunks(*d2)
+                        .chunks(*d2 as usize)
                         .into_iter()
                         .map(|y| y.into_iter().collect::<Vec<_>>())
                         .collect::<Vec<_>>()
@@ -303,15 +303,15 @@ fn format_array(arr: &[Entry], shape: &Shape) -> String {
         Shape::D4(_d0, d1, d2, d3) => {
             let mem = arr
                 .iter()
-                .chunks(d2 * d1 * d3)
+                .chunks((d2 * d1 * d3) as usize)
                 .into_iter()
                 .map(|x| {
                     x.into_iter()
-                        .chunks(d2 * d3)
+                        .chunks((d2 * d3) as usize)
                         .into_iter()
                         .map(|y| {
                             y.into_iter()
-                                .chunks(*d3)
+                                .chunks(*d3 as usize)
                                 .into_iter()
                                 .map(|z| z.into_iter().collect::<Vec<_>>())
                                 .collect::<Vec<_>>()

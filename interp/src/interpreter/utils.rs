@@ -1,9 +1,10 @@
-use crate::values::Value;
+use baa::{BitVecOps, BitVecValue};
 use calyx_ir as ir;
 use calyx_ir::RRC;
 use std::cell::Ref;
 use std::collections::HashSet;
 use std::ops::Deref;
+
 pub type ConstPort = *const ir::Port;
 pub type ConstCell = *const ir::Cell;
 
@@ -20,8 +21,8 @@ pub fn get_go_port(group: &ir::Group) -> RRC<ir::Port> {
 }
 
 #[inline]
-pub fn is_signal_high(done: &Value) -> bool {
-    done.as_bool()
+pub fn is_signal_high(done: &BitVecValue) -> bool {
+    done.to_bool().unwrap()
 }
 
 pub fn get_dest_cells<'a, I>(

@@ -5,27 +5,26 @@ use super::{
     primitive_traits::Named,
     Primitive,
 };
-use crate::values::Value;
 use crate::{comb_primitive, errors::InterpreterError};
 use crate::{
     logging::warn,
     serialization::{Entry, Serializable},
 };
+use baa::{BitVecValue, WidthInt};
 use bitvec::vec::BitVec;
 use calyx_ir as ir;
-use std::ops::Not;
 
 /// A constant.
 #[derive(Debug)]
 pub struct StdConst {
-    value: Value,
+    value: BitVecValue,
     full_name: ir::Id,
 }
 
 impl StdConst {
     pub fn from_constants(value: u64, width: u64, name: ir::Id) -> Self {
         StdConst {
-            value: Value::from(value, width),
+            value: BitVecValue::from(value, width),
             full_name: name,
         }
     }
@@ -37,7 +36,7 @@ impl StdConst {
         let init_value = get_param(params, "VALUE")
             .expect("Missing `value` param from std_const binding");
 
-        let value = Value::from(init_value, width);
+        let value = BitVecValue::from(init_value, width);
 
         Self {
             value,
@@ -53,7 +52,7 @@ impl Named for StdConst {
 }
 
 impl Primitive for StdConst {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         Ok(vec![])
     }
 
@@ -61,19 +60,19 @@ impl Primitive for StdConst {
         true
     }
 
-    fn validate(&self, _inputs: &[(ir::Id, &Value)]) {}
+    fn validate(&self, _inputs: &[(ir::Id, &BitVecValue)]) {}
 
     fn execute(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         Ok(vec![("out".into(), self.value.clone())])
     }
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         Ok(vec![("out".into(), self.value.clone())])
     }
 
@@ -89,7 +88,7 @@ impl Primitive for StdConst {
 // ===================== New core ======================
 
 pub struct StdMux {
-    width: u64,
+    width: WidthInt,
     name: ir::Id,
 }
 
@@ -109,7 +108,7 @@ impl Named for StdMux {
 }
 
 impl Primitive for StdMux {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         Ok(vec![])
     }
 
@@ -117,7 +116,7 @@ impl Primitive for StdMux {
         true
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         for (id, v) in inputs {
             match id.as_ref() {
                 "tru" => assert_eq!(v.len() as u64, self.width),
@@ -130,8 +129,8 @@ impl Primitive for StdMux {
 
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let cond = get_input_unwrap(inputs, "cond");
         let tru = get_input_unwrap(inputs, "tru");
         let fal = get_input_unwrap(inputs, "fal");
@@ -142,9 +141,9 @@ impl Primitive for StdMux {
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
-        Ok(vec![("out".into(), Value::zeroes(self.width))])
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
+        Ok(vec![("out".into(), BitVecValue::zero(self.width))])
     }
 }
 
@@ -374,9 +373,9 @@ comb_primitive!(StdGt[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     }
 
     Ok(if tr {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdLt[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
@@ -392,9 +391,9 @@ comb_primitive!(StdLt[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     //same as gt, just reverse the if.
     //but actually not so if they are equal... should change the loop
     Ok(if tr {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdGe[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
@@ -410,9 +409,9 @@ comb_primitive!(StdGe[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     }
 
     Ok(if tr {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdLe[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
@@ -428,9 +427,9 @@ comb_primitive!(StdLe[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     //same as gt, just reverse the if.
     //but actually not so if they are equal... should change the loop
     Ok(if tr {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdEq[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
@@ -440,11 +439,11 @@ comb_primitive!(StdEq[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     //tr represents a = b
     for (ai, bi) in a_iter.zip(b_iter) {
         if !ai & bi || !bi & ai {
-            return Ok(Value::bit_low());
+            return Ok(BitVecValue::fals());
         }
     }
 
-    Ok(Value::bit_high())
+    Ok(BitVecValue::tru())
 });
 comb_primitive!(StdNeq[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     let a_iter = left.iter();
@@ -453,80 +452,80 @@ comb_primitive!(StdNeq[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     //tr represents a = b
     for (ai, bi) in a_iter.zip(b_iter) {
         if bi & !ai || !bi & ai {
-            return Ok(Value::bit_high());
+            return Ok(BitVecValue::tru());
         }
     }
 
-    Ok(Value::bit_low())
+    Ok(BitVecValue::fals())
 });
 // TODO (griffin) : replace these comparsions with bit-aware variants
 // ===================== Signed Comparison Operations ======================
 comb_primitive!(StdSgt[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() > right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdSlt[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() < right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdSge[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() >= right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdSle[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() <= right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdSeq[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() == right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 comb_primitive!(StdSneq[WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() != right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 
 // ===================== Unsigned FP Comparison Operators ======================
 comb_primitive!(StdFpGt[WIDTH, INT_WIDTH, FRAC_WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_unsigned() > right.as_unsigned() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 
 // ===================== Signed FP Comparison Operators ======================
 comb_primitive!(StdFpSgt[WIDTH, INT_WIDTH, FRAC_WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() > right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 
 comb_primitive!(StdFpSlt[WIDTH, INT_WIDTH, FRAC_WIDTH](left: WIDTH, right: WIDTH) -> (out: WIDTH) {
     Ok(if left.as_signed() < right.as_signed() {
-        Value::bit_high()
+        BitVecValue::tru()
     } else {
-        Value::bit_low()
+        BitVecValue::fals()
     })
 });
 

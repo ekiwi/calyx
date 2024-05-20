@@ -12,10 +12,8 @@ use crate::interpreter::{ComponentInterpreter, Interpreter};
 use crate::interpreter_ir as iir;
 use crate::primitives::{combinational, stateful, Primitive};
 use crate::structures::state_views::StateView;
-use crate::{
-    utils::{AsRaw, MemoryMap},
-    values::Value,
-};
+use crate::utils::{AsRaw, MemoryMap};
+use baa::{BitVecOps, BitVecValue, WidthInt};
 use calyx_ir::{self as ir, RRC};
 use std::collections::{HashMap, HashSet};
 use std::iter::once;
@@ -36,7 +34,7 @@ pub(crate) type PrimitiveMap = RRC<HashMap<ConstCell, Box<dyn Primitive>>>;
 /// A map defining values for ports. As it is keyed by ConstPort, the lifetime of
 /// the keys is independent of the ports. However as a result it is flat, rather
 /// than hierarchical which simplifies the access interface.
-type PortValMap = StackMap<ConstPort, Value>;
+type PortValMap = StackMap<ConstPort, BitVecValue>;
 
 /// The environment to interpret a Calyx program.
 pub struct InterpreterState {
@@ -119,7 +117,7 @@ impl InterpreterState {
     }
 
     /// Insert a new value for the given constant port into the environment
-    pub fn insert<P: AsRaw<ir::Port>>(&mut self, port: P, value: Value) {
+    pub fn insert<P: AsRaw<ir::Port>>(&mut self, port: P, value: BitVecValue) {
         self.port_map.set(port.as_raw(), value);
     }
 
@@ -501,13 +499,16 @@ impl InterpreterState {
 
         for port in comp.signature.borrow().ports.iter() {
             let pt: &ir::Port = &port.borrow();
-            map.insert(pt as ConstPort, Value::zeroes(pt.width as usize));
+            map.insert(pt as ConstPort, BitVecValue::zero(pt.width as WidthInt));
         }
         for group in comp.groups.iter() {
             let grp = group.borrow();
             for hole in &grp.holes {
                 let pt: &ir::Port = &hole.borrow();
-                map.insert(pt as ConstPort, Value::zeroes(pt.width as usize));
+                map.insert(
+                    pt as ConstPort,
+                    BitVecValue::zero(pt.width as WidthInt),
+                );
             }
         }
         for cell in comp.cells.iter() {
@@ -518,7 +519,10 @@ impl InterpreterState {
                 ir::CellType::Constant { val, width } => {
                     for port in &cll.ports {
                         let pt: &ir::Port = &port.borrow();
-                        map.insert(pt as ConstPort, Value::from(*val, *width));
+                        map.insert(
+                            pt as ConstPort,
+                            BitVecValue::from_u64(*val, *width as WidthInt),
+                        );
                     }
                 }
                 ir::CellType::Primitive { .. } => {
@@ -526,9 +530,9 @@ impl InterpreterState {
                         let pt: &ir::Port = &port.borrow();
                         map.insert(
                             pt as ConstPort,
-                            Value::from(
+                            BitVecValue::from_u64(
                                 cll.get_parameter("VALUE").unwrap_or_default(),
-                                pt.width,
+                                pt.width as WidthInt,
                             ),
                         );
                     }
@@ -538,7 +542,7 @@ impl InterpreterState {
                         let pt: &ir::Port = &port.borrow();
                         map.insert(
                             pt as ConstPort,
-                            Value::zeroes(pt.width as usize),
+                            BitVecValue::zero(pt.width as WidthInt),
                         );
                     }
                 }
@@ -550,7 +554,7 @@ impl InterpreterState {
     }
 
     /// Return the value associated with a component's port.
-    pub fn get_from_port<P: AsRaw<ir::Port>>(&self, port: P) -> &Value {
+    pub fn get_from_port<P: AsRaw<ir::Port>>(&self, port: P) -> &BitVecValue {
         self.port_map.get(&port.as_raw()).unwrap()
     }
 
@@ -679,15 +683,15 @@ impl InterpreterState {
                 match op {
                     ir::PortComp::Eq => p1 == p2,
                     ir::PortComp::Neq => p1 != p2,
-                    ir::PortComp::Gt => p1 > p2,
-                    ir::PortComp::Lt => p1 < p2,
-                    ir::PortComp::Geq => p1 >= p2,
-                    ir::PortComp::Leq => p1 <= p2,
+                    ir::PortComp::Gt => p1.is_greater(p2),
+                    ir::PortComp::Lt => p1.is_less(p2),
+                    ir::PortComp::Geq => p1.is_greater_or_equal(p2),
+                    ir::PortComp::Leq => p1.is_less_or_equal(p2),
                 }
             }
             ir::Guard::Port(p) => {
                 let val = self.get_from_port(&p.borrow());
-                if val.len() != 1 {
+                if val.width() != 1 {
                     let can = p.borrow().canonical();
                     return Err(InterpreterError::InvalidBoolCast(
                         (can.cell, can.port),
@@ -695,7 +699,7 @@ impl InterpreterState {
                     )
                     .into());
                 } else {
-                    val.as_bool()
+                    val.to_bool().unwrap()
                 }
             }
             ir::Guard::True => true,

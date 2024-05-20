@@ -27,8 +27,8 @@ use crate::{
         },
     },
     serialization::data_dump::DataDump,
-    values::Value,
 };
+use baa::{BitVecOps, BitVecValue};
 use std::fmt::Debug;
 
 pub type PortMap = IndexedMap<GlobalPortIdx, PortValue>;
@@ -719,7 +719,7 @@ impl<'a> Simulator<'a> {
                     // set go high
                     let go_idx = index_bases + go_local;
                     self.env.ports[go_idx] =
-                        PortValue::new_implicit(Value::bit_high());
+                        PortValue::new_implicit(BitVecValue::tru().clone());
                 }
                 ControlNode::Invoke(_) => todo!(),
                 non_leaf => {
@@ -789,10 +789,10 @@ impl<'a> Simulator<'a> {
                 match c {
                     calyx_ir::PortComp::Eq => a_val == b_val,
                     calyx_ir::PortComp::Neq => a_val != b_val,
-                    calyx_ir::PortComp::Gt => a_val > b_val,
-                    calyx_ir::PortComp::Lt => a_val < b_val,
-                    calyx_ir::PortComp::Geq => a_val >= b_val,
-                    calyx_ir::PortComp::Leq => a_val <= b_val,
+                    calyx_ir::PortComp::Gt => a_val.is_greater(b_val),
+                    calyx_ir::PortComp::Lt => a_val.is_less(b_val),
+                    calyx_ir::PortComp::Geq => a_val.is_greater_or_equal(b_val),
+                    calyx_ir::PortComp::Leq => a_val.is_less_or_equal(b_val),
                 }
                 .into()
             }
@@ -923,7 +923,7 @@ impl<'a> Simulator<'a> {
                 for &done_port in &done_ports {
                     if self.env.ports[done_port].is_undef() {
                         self.env.ports[done_port] =
-                            PortValue::new_implicit(Value::bit_low());
+                            PortValue::new_implicit(BitVecValue::fals().clone());
                         has_changed = true;
                     }
                 }

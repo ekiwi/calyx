@@ -16,8 +16,8 @@ use crate::{
     primitives::Primitive,
     serialization::{Entry, Serializable},
     utils::AsRaw,
-    values::Value,
 };
+use baa::{BitVecOps, BitVecValue};
 use calyx_ir::{self as ir, RRC};
 use serde::Serialize;
 
@@ -75,7 +75,7 @@ impl<'inner> MutCompositeView<'inner> {
     /// environment state. Note that this means updating the value in all arms
     /// of the children and the root state (this latter point is needed to avoid
     /// issues)
-    pub fn insert<P>(&mut self, port: P, value: Value)
+    pub fn insert<P>(&mut self, port: P, value: BitVecValue)
     where
         P: AsRaw<ir::Port>,
     {
@@ -102,7 +102,7 @@ impl<'a> From<MutCompositeView<'a>> for MutStateView<'a> {
 impl<'a> MutStateView<'a> {
     /// Updates the value of the given port to the given value for this state
     /// view.
-    pub fn insert<P: AsRaw<ir::Port>>(&mut self, port: P, value: Value) {
+    pub fn insert<P: AsRaw<ir::Port>>(&mut self, port: P, value: BitVecValue) {
         match self {
             MutStateView::Single(s) => s.insert(port, value),
             MutStateView::Composite(c) => c.insert(port, value),
@@ -133,7 +133,7 @@ impl<'a> StateView<'a> {
     /// # TODO (Griffin):
     /// This should probably have an option/result variant to surface the
     /// parallel disagreement more effectively and avoid erroring out
-    pub fn lookup<P: AsRaw<ir::Port>>(&self, target: P) -> &Value {
+    pub fn lookup<P: AsRaw<ir::Port>>(&self, target: P) -> &BitVecValue {
         match self {
             StateView::SingleView(sv) => sv.get_from_port(target),
             StateView::Composite(cv) => match cv.1.len() {
@@ -282,9 +282,9 @@ impl<'a> StateView<'a> {
                                             "interp_signed".into(),
                                         ),
                                     ) {
-                                        value.as_i64().into()
+                                        value.to_i64().unwrap().into()
                                     } else {
-                                        value.as_u64().into()
+                                        value.to_u64().unwrap().into()
                                     },
                                 )
                             })

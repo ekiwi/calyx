@@ -1,3 +1,4 @@
+use baa::{BitVecOps, BitVecValue, WidthInt};
 use itertools::Itertools;
 
 use crate::{
@@ -12,12 +13,11 @@ use crate::{
         structures::{environment::PortMap, index_trait::IndexRef},
     },
     serialization::{Entry, Serializable, Shape},
-    values::Value,
 };
 
 pub struct StdReg {
     base_port: GlobalPortIdx,
-    internal_state: Value,
+    internal_state: BitVecValue,
     done_is_high: bool,
 }
 
@@ -25,7 +25,7 @@ impl StdReg {
     declare_ports![IN: 0, WRITE_EN: 1, _CLK: 2, RESET: 3, OUT: 4, DONE: 5];
 
     pub fn new(base_port: GlobalPortIdx, width: u32) -> Self {
-        let internal_state = Value::zeroes(width);
+        let internal_state = BitVecValue::zero(width);
         Self {
             base_port,
             internal_state,
@@ -45,9 +45,12 @@ impl Primitive for StdReg {
         ];
 
         let done_port = if port_map[reset].as_bool().unwrap_or_default() {
-            self.internal_state = Value::zeroes(self.internal_state.width());
-            port_map
-                .insert_val(done, AssignedValue::cell_value(Value::bit_low()))?
+            self.internal_state =
+                BitVecValue::zero(self.internal_state.width() as WidthInt);
+            port_map.insert_val(
+                done,
+                AssignedValue::cell_value(BitVecValue::fals().clone()),
+            )?
         } else if port_map[write_en].as_bool().unwrap_or_default() {
             self.internal_state = port_map[input]
                 .as_option()
@@ -59,15 +62,17 @@ impl Primitive for StdReg {
 
             port_map.insert_val(
                 done,
-                AssignedValue::cell_value(Value::bit_high()),
+                AssignedValue::cell_value(BitVecValue::tru().clone()),
             )? | port_map.insert_val(
                 out_idx,
                 AssignedValue::cell_value(self.internal_state.clone()),
             )?
         } else {
             self.done_is_high = false;
-            port_map
-                .insert_val(done, AssignedValue::cell_value(Value::bit_low()))?
+            port_map.insert_val(
+                done,
+                AssignedValue::cell_value(BitVecValue::fals().clone()),
+            )?
         };
 
         Ok(done_port
@@ -88,9 +93,9 @@ impl Primitive for StdReg {
         let done_signal = port_map.insert_val(
             done,
             AssignedValue::cell_value(if self.done_is_high {
-                Value::bit_high()
+                BitVecValue::tru().clone()
             } else {
-                Value::bit_low()
+                BitVecValue::fals().clone()
             }),
         )?;
 
@@ -137,7 +142,7 @@ impl<const SEQ: bool> MemDx<SEQ> {
         &self,
         port_map: &PortMap,
         base_port: GlobalPortIdx,
-    ) -> Option<usize> {
+    ) -> Option<u64> {
         let (addr0, addr1, addr2, addr3) = if SEQ {
             ports![&base_port;
                 addr0: Self::SEQ_ADDR0,
@@ -158,25 +163,25 @@ impl<const SEQ: bool> MemDx<SEQ> {
         };
 
         match self.shape {
-            Shape::D1(_d0_size) => port_map[addr0].as_usize(),
+            Shape::D1(_d0_size) => port_map[addr0].as_u64(),
             Shape::D2(_d0_size, d1_size) => {
-                let a0 = port_map[addr0].as_usize()?;
-                let a1 = port_map[addr1].as_usize()?;
+                let a0 = port_map[addr0].as_u64()?;
+                let a1 = port_map[addr1].as_u64()?;
 
                 Some(a0 * d1_size + a1)
             }
             Shape::D3(_d0_size, d1_size, d2_size) => {
-                let a0 = port_map[addr0].as_usize()?;
-                let a1 = port_map[addr1].as_usize()?;
-                let a2 = port_map[addr2].as_usize()?;
+                let a0 = port_map[addr0].as_u64()?;
+                let a1 = port_map[addr1].as_u64()?;
+                let a2 = port_map[addr2].as_u64()?;
 
                 Some(a0 * (d1_size * d2_size) + a1 * d2_size + a2)
             }
             Shape::D4(_d0_size, d1_size, d2_size, d3_size) => {
-                let a0 = port_map[addr0].as_usize()?;
-                let a1 = port_map[addr1].as_usize()?;
-                let a2 = port_map[addr2].as_usize()?;
-                let a3 = port_map[addr3].as_usize()?;
+                let a0 = port_map[addr0].as_u64()?;
+                let a1 = port_map[addr1].as_u64()?;
+                let a2 = port_map[addr2].as_u64()?;
+                let a3 = port_map[addr3].as_u64()?;
 
                 Some(
                     a0 * (d1_size * d2_size * d3_size)
@@ -213,7 +218,7 @@ impl<const SEQ: bool> MemDx<SEQ> {
 
 pub struct CombMem {
     base_port: GlobalPortIdx,
-    internal_state: Vec<Value>,
+    internal_state: Vec<BitVecValue>,
     // TODO griffin: This bool is unused in the actual struct and should either
     // be removed or
     _allow_invalid_access: bool,
@@ -249,7 +254,7 @@ impl CombMem {
         T: Into<Shape>,
     {
         let shape = size.into();
-        let internal_state = vec![Value::zeroes(width); shape.size()];
+        let internal_state = vec![BitVecValue::zero(width); shape.size()];
 
         Self {
             base_port: base,
@@ -276,7 +281,7 @@ impl CombMem {
 
         let internal_state = data
             .chunks_exact(byte_count as usize)
-            .map(|x| Value::from_bytes_le(x, width as usize))
+            .map(|x| BitVecValue::from_bytes_le(x, width as WidthInt))
             .collect_vec();
 
         assert_eq!(internal_state.len(), size.size());
@@ -298,7 +303,7 @@ impl CombMem {
     pub fn dump_data(&self) -> Vec<u8> {
         self.internal_state
             .iter()
-            .flat_map(|x| x.to_bytes())
+            .flat_map(|x| x.to_bytes_le())
             .collect()
     }
 }
@@ -308,28 +313,29 @@ impl Primitive for CombMem {
         let addr = self.addresser.calculate_addr(port_map, self.base_port);
         let read_data = self.read_data();
 
-        let read =
-            if addr.is_some() && addr.unwrap() < self.internal_state.len() {
-                port_map.insert_val(
-                    read_data,
-                    AssignedValue::cell_value(
-                        self.internal_state[addr.unwrap()].clone(),
-                    ),
-                )?
-            }
-            // either the address is undefined or it is outside the range of valid addresses
-            else {
-                // throw error on cycle boundary rather than here
-                port_map.write_undef(read_data)?;
-                UpdateStatus::Unchanged
-            };
+        let read = if addr.is_some()
+            && addr.unwrap() < self.internal_state.len() as u64
+        {
+            port_map.insert_val(
+                read_data,
+                AssignedValue::cell_value(
+                    self.internal_state[addr.unwrap() as usize].clone(),
+                ),
+            )?
+        }
+        // either the address is undefined or it is outside the range of valid addresses
+        else {
+            // throw error on cycle boundary rather than here
+            port_map.write_undef(read_data)?;
+            UpdateStatus::Unchanged
+        };
 
         let done_signal = port_map.insert_val(
             self.done(),
             AssignedValue::cell_value(if self.done_is_high {
-                Value::bit_high()
+                BitVecValue::tru().clone()
             } else {
-                Value::bit_low()
+                BitVecValue::fals().clone()
             }),
         )?;
         Ok(done_signal | read)
@@ -349,7 +355,7 @@ impl Primitive for CombMem {
             let write_data = port_map[self.write_data()]
                 .as_option()
                 .ok_or(InterpreterError::UndefinedWrite)?;
-            self.internal_state[addr] = write_data.val().clone();
+            self.internal_state[addr as usize] = write_data.val().clone();
             self.done_is_high = true;
             port_map.insert_val(done, AssignedValue::cell_b_high())?
         } else {
@@ -360,7 +366,9 @@ impl Primitive for CombMem {
         if let Some(addr) = addr {
             Ok(port_map.insert_val(
                 read_data,
-                AssignedValue::cell_value(self.internal_state[addr].clone()),
+                AssignedValue::cell_value(
+                    self.internal_state[addr as usize].clone(),
+                ),
             )? | done)
         } else {
             port_map.write_undef(read_data)?;
@@ -394,7 +402,7 @@ impl Primitive for CombMem {
 
 pub struct SeqMem {
     base_port: GlobalPortIdx,
-    internal_state: Vec<Value>,
+    internal_state: Vec<BitVecValue>,
     // TODO griffin: This bool is unused in the actual struct and should either
     // be removed or
     _allow_invalid_access: bool,
@@ -412,7 +420,7 @@ impl SeqMem {
         size: T,
     ) -> Self {
         let shape = size.into();
-        let internal_state = vec![Value::zeroes(width); shape.size()];
+        let internal_state = vec![BitVecValue::zero(width); shape.size()];
 
         Self {
             base_port: base,
@@ -440,7 +448,7 @@ impl SeqMem {
 
         let internal_state = data
             .chunks_exact(byte_count as usize)
-            .map(|x| Value::from_bytes_le(x, width as usize))
+            .map(|x| BitVecValue::from_bytes_le(x, width as WidthInt))
             .collect_vec();
 
         assert_eq!(internal_state.len(), size.size());
@@ -494,7 +502,7 @@ impl SeqMem {
     pub fn dump_data(&self) -> Vec<u8> {
         self.internal_state
             .iter()
-            .flat_map(|x| x.to_bytes())
+            .flat_map(|x| x.to_bytes_le())
             .collect()
     }
 }
@@ -504,9 +512,9 @@ impl Primitive for SeqMem {
         let done_signal = port_map.insert_val(
             self.done(),
             AssignedValue::cell_value(if self.done_is_high {
-                Value::bit_high()
+                BitVecValue::tru().clone()
             } else {
-                Value::bit_low()
+                BitVecValue::fals().clone()
             }),
         )?;
 
@@ -535,7 +543,7 @@ impl Primitive for SeqMem {
 
         if reset {
             self.done_is_high = false;
-            self.read_out = PortValue::new_cell(Value::zeroes(self._width));
+            self.read_out = PortValue::new_cell(BitVecValue::zero(self._width));
         } else if content_en && write_en {
             self.done_is_high = true;
             self.read_out = PortValue::new_undef();
@@ -544,13 +552,15 @@ impl Primitive for SeqMem {
             let write_data = port_map[self.write_data()]
                 .as_option()
                 .ok_or(InterpreterError::UndefinedWrite)?;
-            self.internal_state[addr_actual] = write_data.val().clone();
+            self.internal_state[addr_actual as usize] =
+                write_data.val().clone();
         } else if content_en {
             self.done_is_high = true;
             let addr_actual =
                 addr.ok_or(InterpreterError::UndefinedReadAddr)?;
-            self.read_out =
-                PortValue::new_cell(self.internal_state[addr_actual].clone());
+            self.read_out = PortValue::new_cell(
+                self.internal_state[addr_actual as usize].clone(),
+            );
         } else {
             self.done_is_high = false;
         }
@@ -558,9 +568,9 @@ impl Primitive for SeqMem {
         let done_changed = port_map.insert_val(
             self.done(),
             AssignedValue::cell_value(if self.done_is_high {
-                Value::bit_high()
+                BitVecValue::tru().clone()
             } else {
-                Value::bit_low()
+                BitVecValue::fals().clone()
             }),
         );
         Ok(done_changed?

@@ -1,8 +1,9 @@
 use crate::{
     errors::InterpreterResult, interpreter::ComponentInterpreter,
     serialization::Serializable, structures::state_views::StateView,
-    utils::PrintCode, values::Value,
+    utils::PrintCode,
 };
+use baa::BitVecValue;
 
 use calyx_ir as ir;
 
@@ -19,22 +20,22 @@ pub trait Primitive: Named {
     fn is_comb(&self) -> bool;
 
     /// Validate inputs to the component.
-    fn validate(&self, inputs: &[(ir::Id, &Value)]);
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]);
 
     /// Execute the component.
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>>;
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>>;
 
     /// Does nothing for comb. prims; mutates internal state for stateful
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>>;
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>>;
 
     /// Execute the component.
     fn validate_and_execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.validate(inputs);
         self.execute(inputs)
     }
@@ -42,8 +43,8 @@ pub trait Primitive: Named {
     /// Reset the component.
     fn reset(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>>;
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>>;
 
     /// Serialize the state of this primitive, if any.
     fn serialize(&self, _code: Option<PrintCode>) -> Serializable {

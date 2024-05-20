@@ -211,8 +211,6 @@ fn smoosher_diff_other() {
 mod values_stk_env_test {
     #[allow(unused)]
     use crate::structures::stk_env::StackMap;
-    #[allow(unused)]
-    use crate::values::Value;
 
     #[test]
     fn smoosher_val_get_set() {

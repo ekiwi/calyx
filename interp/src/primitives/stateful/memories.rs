@@ -9,14 +9,14 @@ use crate::{
     serialization::{Entry, Serializable},
     utils::construct_bindings,
     validate, validate_friendly,
-    values::Value,
 };
+use baa::{BitVecOps, BitVecValue, WidthInt};
 use calyx_ir as ir;
 
 pub(super) enum RegUpdate {
     None,
     Reset,
-    Value(Value),
+    Value(BitVecValue),
 }
 
 impl RegUpdate {
@@ -32,7 +32,7 @@ impl RegUpdate {
 /// A register.
 pub struct StdReg {
     pub width: u64,
-    pub data: [Value; 1],
+    pub data: [BitVecValue; 1],
     update: RegUpdate,
     full_name: ir::Id,
 }
@@ -41,7 +41,7 @@ impl StdReg {
     pub fn from_constants(width: u64, full_name: ir::Id) -> Self {
         StdReg {
             width,
-            data: [Value::new(width as usize)],
+            data: [BitVecValue::zero(width as WidthInt)],
             update: RegUpdate::None,
             full_name,
         }
@@ -64,24 +64,24 @@ impl Named for StdReg {
 }
 
 impl Primitive for StdReg {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let out = match self.update.take() {
             RegUpdate::None => vec![
                 (ir::Id::from("out"), self.data[0].clone()),
-                (ir::Id::from("done"), Value::bit_low()),
+                (ir::Id::from("done"), BitVecValue::fals().clone()),
             ],
             RegUpdate::Reset => {
-                self.data[0] = Value::zeroes(self.width);
+                self.data[0] = BitVecValue::zero(self.width as WidthInt);
                 vec![
                     (ir::Id::from("out"), self.data[0].clone()),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (ir::Id::from("done"), BitVecValue::fals().clone()),
                 ]
             }
             RegUpdate::Value(v) => {
                 self.data[0] = v;
                 vec![
                     (ir::Id::from("out"), self.data[0].clone()),
-                    (ir::Id::from("done"), Value::bit_high()),
+                    (ir::Id::from("done"), BitVecValue::tru().clone()),
                 ]
             }
         };
@@ -93,13 +93,13 @@ impl Primitive for StdReg {
         false
     }
 
-    fn validate(&self, inputs: &[(calyx_ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(calyx_ir::Id, &BitVecValue)]) {
         for (id, v) in inputs {
             match id.as_ref() {
-                "in" => assert_eq!(v.len() as u64, self.width),
-                "write_en" => assert_eq!(v.len(), 1),
-                "clk" => assert_eq!(v.len(), 1),
-                "reset" => assert_eq!(v.len(), 1),
+                "in" => assert_eq!(v.width() as u64, self.width),
+                "write_en" => assert_eq!(v.width(), 1),
+                "clk" => assert_eq!(v.width(), 1),
+                "reset" => assert_eq!(v.width(), 1),
                 p => unreachable!("Unknown port: {}", p),
             }
         }
@@ -107,17 +107,17 @@ impl Primitive for StdReg {
 
     fn execute(
         &mut self,
-        inputs: &[(calyx_ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(calyx_ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             input: "in",
             write_en: "write_en",
             reset: "reset"
         ];
 
-        self.update = if reset.as_bool() {
+        self.update = if reset.to_bool().unwrap() {
             RegUpdate::Reset
-        } else if write_en.as_bool() {
+        } else if write_en.to_bool().unwrap() {
             RegUpdate::Value(input.clone())
         } else {
             RegUpdate::None
@@ -128,12 +128,12 @@ impl Primitive for StdReg {
 
     fn reset(
         &mut self,
-        _: &[(calyx_ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _: &[(calyx_ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.update.clear();
         Ok(vec![
             (ir::Id::from("out"), self.data[0].clone()),
-            (ir::Id::from("done"), Value::bit_low()),
+            (ir::Id::from("done"), BitVecValue::fals()),
         ])
     }
 
@@ -146,7 +146,7 @@ impl Primitive for StdReg {
 enum StdMemAction {
     None,
     Read(InterpreterResult<u64>),
-    Write(InterpreterResult<u64>, Value),
+    Write(InterpreterResult<u64>, BitVecValue),
 }
 
 impl StdMemAction {
@@ -166,8 +166,8 @@ impl Default for StdMemAction {
 /// reads and 1-cycle writes. The read_data output is not latched.
 pub struct StdMem<T: MemBinder> {
     mem_binder: T,
-    width: u64,
-    data: Vec<Value>,
+    width: WidthInt,
+    data: Vec<BitVecValue>,
     full_name: ir::Id,
     allow_invalid_memory_access: bool,
     update: StdMemAction,
@@ -180,11 +180,14 @@ impl<T: MemBinder> StdMem<T> {
         allow_invalid_memory_access: bool,
     ) -> Self {
         let mem_binder = T::new(params, name);
-        let width =
-            get_param(params, "WIDTH").expect("Missing WIDTH param for memory");
+        let width = get_param(params, "WIDTH")
+            .expect("Missing WIDTH param for memory")
+            as WidthInt;
 
-        let data =
-            vec![Value::zeroes(width as usize); mem_binder.get_array_length()];
+        let data = vec![
+            BitVecValue::zero(width as WidthInt);
+            mem_binder.get_array_length()
+        ];
 
         Self {
             mem_binder,
@@ -200,11 +203,12 @@ impl<T: MemBinder> StdMem<T> {
         params: &ir::Binding,
         name: ir::Id,
         allow_invalid_memory_access: bool,
-        initial: Vec<Value>,
+        initial: Vec<BitVecValue>,
     ) -> InterpreterResult<Self> {
         let mem_binder = T::new(params, name);
-        let width =
-            get_param(params, "WIDTH").expect("Missing WIDTH param for memory");
+        let width = get_param(params, "WIDTH")
+            .expect("Missing WIDTH param for memory")
+            as WidthInt;
 
         let size = mem_binder.get_array_length();
 
@@ -217,10 +221,8 @@ impl<T: MemBinder> StdMem<T> {
             .into());
         }
 
-        let mut data = initial;
-        for val in data.iter_mut() {
-            val.truncate_in_place(width as usize);
-        }
+        let msb = width - 1;
+        let data = initial.iter().map(|v| v.slice(msb, 0)).collect::<Vec<_>>();
 
         Ok(Self {
             mem_binder,
@@ -244,18 +246,18 @@ impl<T: MemBinder> Primitive for StdMem<T> {
         false
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate_friendly![inputs;
             write_en: 1,
-            write_data: self.width
+            write_data: self.width as u64
         ];
         self.mem_binder.validate(inputs);
     }
 
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             write_en [bool]: "write_en",
             write_data: "write_data"
@@ -272,12 +274,12 @@ impl<T: MemBinder> Primitive for StdMem<T> {
                     if (*idx as usize) < self.data.len() {
                         self.data[*idx as usize].clone()
                     } else {
-                        Value::zeroes(self.width)
+                        BitVecValue::zero(self.width as WidthInt)
                     }
                 )]
             }
             Err(_) => {
-                output![("read_data", Value::zeroes(self.width))]
+                output![("read_data", BitVecValue::zero(self.width))]
             }
         };
 
@@ -290,35 +292,35 @@ impl<T: MemBinder> Primitive for StdMem<T> {
         Ok(out)
     }
 
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         Ok(match self.update.take() {
             StdMemAction::None => {
                 output![
-                    ("read_data", Value::zeroes(self.width)),
-                    ("done", Value::bit_low())
+                    ("read_data", BitVecValue::zero(self.width)),
+                    ("done", BitVecValue::fals())
                 ]
             }
             StdMemAction::Read(idx) => {
                 let idx = idx? as usize;
                 if idx >= self.data.len() {
                     output![
-                        ("read_data", Value::zeroes(self.width)),
-                        ("done", Value::bit_low())
+                        ("read_data", BitVecValue::zero(self.width)),
+                        ("done", BitVecValue::fals())
                     ]
                 } else {
                     output!(
                         ("read_data", self.data[idx].clone()),
-                        ("done", Value::bit_low())
+                        ("done", BitVecValue::fals())
                     )
                 }
             }
             StdMemAction::Write(idx, v) => {
                 let idx = idx? as usize;
                 if idx >= self.data.len() {
-                    output![("read_data", v), ("done", Value::bit_high())]
+                    output![("read_data", v), ("done", BitVecValue::tru())]
                 } else {
                     self.data[idx] = v.clone();
-                    output![("read_data", v), ("done", Value::bit_high())]
+                    output![("read_data", v), ("done", BitVecValue::tru())]
                 }
             }
         })
@@ -326,11 +328,11 @@ impl<T: MemBinder> Primitive for StdMem<T> {
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         Ok(output![
-            ("read_data", Value::zeroes(self.width)),
-            ("done", Value::bit_low())
+            ("read_data", BitVecValue::zero(self.width)),
+            ("done", BitVecValue::fals())
         ])
     }
 
@@ -444,7 +446,7 @@ impl StdMem<MemD4> {
 enum SeqMemAction<T> {
     None,
     Read(T),
-    Write(T, Value),
+    Write(T, BitVecValue),
     Reset,
 }
 
@@ -471,13 +473,13 @@ impl<T> SeqMemAction<T> {
 pub struct SeqMem<T: MemBinder> {
     mem_binder: T,
     // parameters
-    width: u64,
+    width: WidthInt,
     // Internal Details
-    data: Vec<Value>,
+    data: Vec<BitVecValue>,
     full_name: ir::Id,
     allow_invalid_memory_access: bool,
     // I/O
-    read_out: Value,
+    read_out: BitVecValue,
     update: SeqMemAction<InterpreterResult<u64>>,
 }
 
@@ -488,11 +490,11 @@ impl<T: MemBinder> SeqMem<T> {
         allow_invalid_memory_access: bool,
     ) -> Self {
         let mem_binder = T::new(params, name);
-        let width =
-            get_param(params, "WIDTH").expect("Missing WIDTH param for memory");
+        let width = get_param(params, "WIDTH")
+            .expect("Missing WIDTH param for memory")
+            as WidthInt;
 
-        let data =
-            vec![Value::zeroes(width as usize); mem_binder.get_array_length()];
+        let data = vec![BitVecValue::zero(width); mem_binder.get_array_length()];
 
         Self {
             mem_binder,
@@ -500,7 +502,7 @@ impl<T: MemBinder> SeqMem<T> {
             data,
             full_name: name,
             allow_invalid_memory_access,
-            read_out: Value::zeroes(width),
+            read_out: BitVecValue::zero(width),
             update: SeqMemAction::None,
         }
     }
@@ -509,11 +511,12 @@ impl<T: MemBinder> SeqMem<T> {
         params: &ir::Binding,
         name: ir::Id,
         allow_invalid_memory_access: bool,
-        initial: Vec<Value>,
+        initial: Vec<BitVecValue>,
     ) -> InterpreterResult<Self> {
         let mem_binder = T::new(params, name);
-        let width =
-            get_param(params, "WIDTH").expect("Missing WIDTH param for memory");
+        let width = get_param(params, "WIDTH")
+            .expect("Missing WIDTH param for memory")
+            as WidthInt;
 
         let size = mem_binder.get_array_length();
 
@@ -526,10 +529,8 @@ impl<T: MemBinder> SeqMem<T> {
             .into());
         }
 
-        let mut data = initial;
-        for val in data.iter_mut() {
-            val.truncate_in_place(width as usize);
-        }
+        let msb = width - 1;
+        let data = initial.iter().map(|v| v.slice(msb, 0)).collect::<Vec<_>>();
 
         Ok(Self {
             mem_binder,
@@ -537,7 +538,7 @@ impl<T: MemBinder> SeqMem<T> {
             data,
             full_name: name,
             allow_invalid_memory_access,
-            read_out: Value::zeroes(width),
+            read_out: BitVecValue::zero(width),
             update: SeqMemAction::None,
         })
     }
@@ -553,20 +554,20 @@ impl<T: MemBinder> Primitive for SeqMem<T> {
         false
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate![inputs;
             content_en: 1,
             write_en: 1,
             reset: 1,
-            write_data: self.width
+            write_data: self.width as u64
         ];
         self.mem_binder.validate(inputs);
     }
 
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             content_en [bool]: "content_en",
             write_en [bool]: "write_en",
@@ -592,19 +593,19 @@ impl<T: MemBinder> Primitive for SeqMem<T> {
         Ok(vec![])
     }
 
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         match self.update.take() {
             SeqMemAction::Read(idx) => {
                 let idx = idx? as usize;
                 if idx >= self.data.len() {
-                    self.read_out = Value::zeroes(self.width)
+                    self.read_out = BitVecValue::zero(self.width)
                 } else {
                     self.read_out = self.data[idx].clone()
                 }
 
                 Ok(vec![
                     ("read_data".into(), self.read_out.clone()),
-                    ("done".into(), Value::bit_high()),
+                    ("done".into(), BitVecValue::tru()),
                 ])
             }
             SeqMemAction::Write(idx, v) => {
@@ -613,36 +614,36 @@ impl<T: MemBinder> Primitive for SeqMem<T> {
                     self.data[idx] = v;
                 }
 
-                self.read_out = Value::zeroes(self.width);
+                self.read_out = BitVecValue::zero(self.width);
 
                 Ok(vec![
                     ("read_data".into(), self.read_out.clone()),
-                    ("done".into(), Value::bit_high()),
+                    ("done".into(), BitVecValue::tru()),
                 ])
             }
             SeqMemAction::Reset => {
-                self.read_out = Value::zeroes(self.width);
+                self.read_out = BitVecValue::zero(self.width);
                 Ok(vec![
                     ("read_data".into(), self.read_out.clone()),
-                    ("done".into(), Value::bit_low()),
+                    ("done".into(), BitVecValue::fals()),
                 ])
             }
             SeqMemAction::None => Ok(vec![
                 ("read_data".into(), self.read_out.clone()),
-                ("done".into(), Value::bit_low()),
+                ("done".into(), BitVecValue::fals()),
             ]),
         }
     }
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.update.clear();
 
         Ok(vec![
             ("read_data".into(), self.read_out.clone()),
-            ("done".into(), Value::bit_low()),
+            ("done".into(), BitVecValue::fals()),
         ])
     }
 

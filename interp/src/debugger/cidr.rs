@@ -25,10 +25,12 @@ use std::collections::HashSet;
 use calyx_frontend::Workspace;
 use calyx_ir::{self as ir, Id, RRC};
 
+use baa::{BitVecOps, WidthInt};
 use calyx_opt::pass_manager::PassManager;
 use owo_colors::OwoColorize;
 use std::{cell::Ref, collections::HashMap, rc::Rc};
 use std::{fmt::Write, path::Path};
+
 /// Constant amount of space used for debugger messages
 pub(super) const SPACING: &str = "    ";
 
@@ -695,21 +697,31 @@ fn print_cell(
                     if let Some(code) = code {
                         match code {
                             PrintCode::Unsigned => {
-                                format!("{}", v.as_unsigned())
+                                format!("{}", v.to_big_uint())
                             }
                             PrintCode::Signed => {
-                                format!("{}", v.as_signed().green())
+                                format!("{}", v.to_big_int().green())
                             }
                             PrintCode::UFixed(num) => {
-                                format!("{}", v.as_ufp(*num).blue())
+                                format!(
+                                    "{}",
+                                    v.to_unsigned_fixed_point(*num as WidthInt)
+                                        .blue()
+                                )
                             }
                             PrintCode::SFixed(num) => {
-                                format!("{}", v.as_sfp(*num).purple())
+                                format!(
+                                    "{}",
+                                    v.to_signed_fixed_point(*num as WidthInt)
+                                        .purple()
+                                )
                             }
-                            PrintCode::Binary => format!("{}", v.cyan()),
+                            PrintCode::Binary => {
+                                format!("{}", v.to_bit_str().cyan())
+                            }
                         }
                     } else {
-                        format!("{}", &v.magenta())
+                        format!("{}", &v.to_bit_str().magenta())
                     }
                 )
                 .expect("Something went wrong trying to print the port");
@@ -741,11 +753,13 @@ fn print_port(
         parent_name.red(),
         port_ref.name.green(),
         match code {
-            PrintCode::Unsigned => format!("{}", v.as_unsigned()),
-            PrintCode::Signed => format!("{}", v.as_signed()),
-            PrintCode::UFixed(num) => format!("{}", v.as_ufp(num)),
-            PrintCode::SFixed(num) => format!("{}", v.as_sfp(num)),
-            PrintCode::Binary => format!("{}", v),
+            PrintCode::Unsigned => format!("{}", v.to_big_uint()),
+            PrintCode::Signed => format!("{}", v.to_big_int()),
+            PrintCode::UFixed(num) =>
+                format!("{}", v.to_unsigned_fixed_point(num as WidthInt)),
+            PrintCode::SFixed(num) =>
+                format!("{}", v.to_signed_fixed_point(num as WidthInt)),
+            PrintCode::Binary => format!("{}", v.to_bit_str()),
         }
     )
 }

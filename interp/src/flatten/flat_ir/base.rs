@@ -1,13 +1,11 @@
+use baa::{BitVecOps, BitVecValue};
 use std::{
     num::NonZeroU32,
     ops::{Add, Sub},
 };
 
-use crate::{
-    flatten::structures::index_trait::{
-        impl_index, impl_index_nonzero, IndexRange, IndexRef,
-    },
-    values::Value,
+use crate::flatten::structures::index_trait::{
+    impl_index, impl_index_nonzero, IndexRange, IndexRef,
 };
 
 use super::{cell_prototype::CellPrototype, prelude::Identifier};
@@ -276,14 +274,14 @@ impl From<AssignmentIdx> for AssignmentWinner {
 
 #[derive(Clone, PartialEq)]
 pub struct AssignedValue {
-    val: Value,
+    val: BitVecValue,
     winner: AssignmentWinner,
 }
 
 impl std::fmt::Debug for AssignedValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AssignedValue")
-            .field("val", &format!("{}", &self.val))
+            .field("val", &format!("{:?}", &self.val))
             .field("winner", &self.winner)
             .finish()
     }
@@ -297,7 +295,7 @@ impl std::fmt::Display for AssignedValue {
 }
 
 impl AssignedValue {
-    pub fn new<T: Into<AssignmentWinner>>(val: Value, winner: T) -> Self {
+    pub fn new<T: Into<AssignmentWinner>>(val: BitVecValue, winner: T) -> Self {
         Self {
             val,
             winner: winner.into(),
@@ -309,7 +307,7 @@ impl AssignedValue {
         self.winner != other.winner
     }
 
-    pub fn val(&self) -> &Value {
+    pub fn val(&self) -> &BitVecValue {
         &self.val
     }
 
@@ -319,13 +317,13 @@ impl AssignedValue {
 
     pub fn implicit_bit_high() -> Self {
         Self {
-            val: Value::bit_high(),
+            val: BitVecValue::tru().clone(),
             winner: AssignmentWinner::Implicit,
         }
     }
 
     #[inline]
-    pub fn cell_value(val: Value) -> Self {
+    pub fn cell_value(val: BitVecValue) -> Self {
         Self {
             val,
             winner: AssignmentWinner::Cell,
@@ -333,7 +331,7 @@ impl AssignedValue {
     }
 
     #[inline]
-    pub fn implicit_value(val: Value) -> Self {
+    pub fn implicit_value(val: BitVecValue) -> Self {
         Self {
             val,
             winner: AssignmentWinner::Implicit,
@@ -342,12 +340,12 @@ impl AssignedValue {
 
     #[inline]
     pub fn cell_b_high() -> Self {
-        Self::cell_value(Value::bit_high())
+        Self::cell_value(BitVecValue::tru().clone())
     }
 
     #[inline]
     pub fn cell_b_low() -> Self {
-        Self::cell_value(Value::bit_low())
+        Self::cell_value(BitVecValue::fals().clone())
     }
 }
 
@@ -375,14 +373,14 @@ impl PortValue {
     }
 
     pub fn as_bool(&self) -> Option<bool> {
-        self.0.as_ref().map(|x| x.val().as_bool())
+        self.0.as_ref().and_then(|x| x.val().to_bool())
     }
 
-    pub fn as_usize(&self) -> Option<usize> {
-        self.0.as_ref().map(|x| x.val().as_usize())
+    pub fn as_u64(&self) -> Option<u64> {
+        self.0.as_ref().and_then(|x| x.val().to_u64())
     }
 
-    pub fn val(&self) -> Option<&Value> {
+    pub fn val(&self) -> Option<&BitVecValue> {
         self.0.as_ref().map(|x| &x.val)
     }
 
@@ -399,12 +397,12 @@ impl PortValue {
     }
 
     /// Creates a [PortValue] that has the "winner" as a cell
-    pub fn new_cell(val: Value) -> Self {
+    pub fn new_cell(val: BitVecValue) -> Self {
         Self(Some(AssignedValue::cell_value(val)))
     }
 
     /// Creates a [PortValue] that has the "winner" as implicit
-    pub fn new_implicit(val: Value) -> Self {
+    pub fn new_implicit(val: BitVecValue) -> Self {
         Self(Some(AssignedValue::implicit_value(val)))
     }
 

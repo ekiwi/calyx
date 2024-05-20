@@ -1,4 +1,4 @@
-use crate::values::Value;
+use baa::BitVecValue;
 use calyx_ir::{self as ir, Assignment, Binding, Id, Port, RRC};
 use serde::Deserialize;
 use std::cell::Ref;
@@ -48,7 +48,7 @@ impl<'a> PortAssignment<'a> {
 /// Futil program.
 #[derive(Debug, Deserialize)]
 #[serde(transparent)]
-pub struct MemoryMap(HashMap<Id, Vec<Value>>);
+pub struct MemoryMap(HashMap<Id, Vec<BitVecValue>>);
 
 impl MemoryMap {
     pub fn inflate_map(
@@ -66,7 +66,7 @@ impl MemoryMap {
 }
 
 impl Deref for MemoryMap {
-    type Target = HashMap<Id, Vec<Value>>;
+    type Target = HashMap<Id, Vec<BitVecValue>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

@@ -1,7 +1,7 @@
-use crate::values::Value;
 use crate::{
     flatten::flat_ir::prelude::AssignedValue, utils::assignment_to_string,
 };
+use baa::BitVecValue;
 use calyx_ir::{self as ir, Assignment, Id};
 use calyx_utils::Error as CalyxError;
 use rustyline::error::ReadlineError;
@@ -126,14 +126,14 @@ pub enum InterpreterError {
 
     #[error(
         "par assignments not disjoint: {parent_id}.{port_id}
-    1. {v1}
-    2. {v2}"
+    1. {v1:?}
+    2. {v2:?}"
     )]
     ParOverlap {
         port_id: Id,
         parent_id: Id,
-        v1: Value,
-        v2: Value,
+        v1: BitVecValue,
+        v2: BitVecValue,
     },
     #[error("invalid internal seq state. This should never happen, please report it")]
     InvalidSeqState,
@@ -226,13 +226,15 @@ impl From<CalyxError> for InterpreterError {
     }
 }
 
-impl From<crate::structures::stk_env::CollisionError<*const ir::Port, Value>>
-    for InterpreterError
+impl
+    From<
+        crate::structures::stk_env::CollisionError<*const ir::Port, BitVecValue>,
+    > for InterpreterError
 {
     fn from(
         err: crate::structures::stk_env::CollisionError<
             *const calyx_ir::Port,
-            crate::values::Value,
+            BitVecValue,
         >,
     ) -> Self {
         // when the error is first raised, the IR has not yet been deconstructed, so this

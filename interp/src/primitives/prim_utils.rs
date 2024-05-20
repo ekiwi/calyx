@@ -1,4 +1,4 @@
-use crate::values::Value;
+use baa::BitVecValue;
 use calyx_ir as ir;
 use std::collections::VecDeque;
 
@@ -13,9 +13,9 @@ where
 }
 
 pub(super) fn get_input<'a, S>(
-    inputs: &[(calyx_ir::Id, &'a Value)],
+    inputs: &[(calyx_ir::Id, &'a BitVecValue)],
     target: S,
-) -> Option<&'a Value>
+) -> Option<&'a BitVecValue>
 where
     S: Into<calyx_ir::Id>,
 {
@@ -24,9 +24,9 @@ where
 }
 
 pub(super) fn get_input_unwrap<'a, S>(
-    inputs: &[(calyx_ir::Id, &'a Value)],
+    inputs: &[(calyx_ir::Id, &'a BitVecValue)],
     target: S,
-) -> &'a Value
+) -> &'a BitVecValue
 where
     S: Into<calyx_ir::Id>,
 {
@@ -91,19 +91,19 @@ macro_rules! get_inputs {
     };
 
     ($port:ident) => {
-        let $port: &$crate::values::Value = $port.unwrap();
+        let $port: &baa::BitVecValue = $port.unwrap();
     };
 
     ($port:ident, bool) => {
-        let $port: bool = $port.unwrap().as_bool();
+        let $port: bool = $port.unwrap().to_bool().unwrap();
     };
 
     ($port:ident, u64) => {
-        let $port: u64 = $port.unwrap().as_u64();
+        let $port: u64 = $port.unwrap().to_u64().unwrap();
     };
 
     ($port:ident, i64) => {
-        let $port: i64 = $port.unwrap().as_i64();
+        let $port: i64 = $port.unwrap().to_i64().unwrap();
     };
 }
 

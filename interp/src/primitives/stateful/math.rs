@@ -6,7 +6,7 @@ use crate::logging::{self, warn};
 use crate::serialization::{Entry, Serializable};
 use crate::utils::PrintCode;
 use crate::validate;
-use crate::values::Value;
+use baa::{BitVecValue, WidthInt};
 use calyx_ir as ir;
 use ibig::ops::RemEuclid;
 use ibig::{ibig, ubig, IBig, UBig};
@@ -16,7 +16,7 @@ const DECIMAL_PRINT_WIDTH: usize = 7;
 enum BinOpUpdate {
     None,
     Reset,
-    Value(Value, Value),
+    Value(BitVecValue, BitVecValue),
 }
 
 impl BinOpUpdate {
@@ -36,10 +36,10 @@ impl BinOpUpdate {
 /// Note: Calling [Primitive::execute] multiple times before [Primitive::do_tick] has no effect; only the last
 /// set of inputs prior to the [Primitive::do_tick] will be saved.
 pub struct StdMultPipe<const SIGNED: bool, const DEPTH: usize> {
-    width: u64,
-    product: Value,
+    width: WidthInt,
+    product: BitVecValue,
     update: BinOpUpdate,
-    queue: ShiftBuffer<Value, DEPTH>,
+    queue: ShiftBuffer<BitVecValue, DEPTH>,
     full_name: ir::Id,
     logger: logging::Logger,
     error_on_overflow: bool,
@@ -53,7 +53,7 @@ impl<const SIGNED: bool, const DEPTH: usize> StdMultPipe<SIGNED, DEPTH> {
     ) -> Self {
         StdMultPipe {
             width,
-            product: Value::zeroes(width as usize),
+            product: BitVecValue::zeroes(width as usize),
             update: BinOpUpdate::None,
             queue: ShiftBuffer::default(),
             logger: logging::new_sublogger(name),
@@ -84,20 +84,20 @@ impl<const SIGNED: bool, const DEPTH: usize> Named
 impl<const SIGNED: bool, const DEPTH: usize> Primitive
     for StdMultPipe<SIGNED, DEPTH>
 {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let out = match self.update.take() {
             BinOpUpdate::None => {
                 self.queue.reset();
                 vec![
                     (ir::Id::from("out"), self.product.clone()),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Reset => {
                 self.queue.reset();
                 vec![
-                    (ir::Id::from("out"), Value::zeroes(self.width)),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (ir::Id::from("out"), BitVecValue::zero(self.width)),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Value(left, right) => {
@@ -139,12 +139,12 @@ impl<const SIGNED: bool, const DEPTH: usize> Primitive
                     self.product = value;
                     vec![
                         (ir::Id::from("out"), self.product.clone()),
-                        (ir::Id::from("done"), Value::bit_high()),
+                        (ir::Id::from("done"), BitVecValue::tru()),
                     ]
                 } else {
                     vec![
                         (ir::Id::from("out"), self.product.clone()),
-                        (ir::Id::from("done"), Value::bit_low()),
+                        (ir::Id::from("done"), BitVecValue::fals()),
                     ]
                 }
             }
@@ -171,8 +171,8 @@ impl<const SIGNED: bool, const DEPTH: usize> Primitive
 
     fn execute(
         &mut self,
-        inputs: &[(calyx_ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(calyx_ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             left: "left",
             right: "right",
@@ -193,13 +193,13 @@ impl<const SIGNED: bool, const DEPTH: usize> Primitive
 
     fn reset(
         &mut self,
-        _: &[(calyx_ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _: &[(calyx_ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.update.clear();
         self.queue.reset();
         Ok(vec![
             (ir::Id::from("out"), self.product.clone()),
-            (ir::Id::from("done"), Value::bit_low()),
+            (ir::Id::from("done"), BitVecValue::fals()),
         ])
     }
 
@@ -225,11 +225,11 @@ impl<const SIGNED: bool, const DEPTH: usize> Primitive
 ///Note: Calling [Primitive::execute] multiple times before [Primitive::do_tick] has no effect; only
 ///the last set of inputs prior to the [Primitive::do_tick] will be saved.
 pub struct StdDivPipe<const SIGNED: bool> {
-    pub width: u64,
-    pub quotient: Value,
-    pub remainder: Value,
+    pub width: WidthInt,
+    pub quotient: BitVecValue,
+    pub remainder: BitVecValue,
     update: BinOpUpdate, //first is left, second is right
-    queue: ShiftBuffer<(Value, Value), 2>, //invariant: always length 2
+    queue: ShiftBuffer<(BitVecValue, BitVecValue), 2>, //invariant: always length 2
     full_name: ir::Id,
     logger: logging::Logger,
     error_on_overflow: bool,
@@ -243,8 +243,8 @@ impl<const SIGNED: bool> StdDivPipe<SIGNED> {
     ) -> Self {
         StdDivPipe {
             width,
-            quotient: Value::zeroes(width as usize),
-            remainder: Value::zeroes(width as usize),
+            quotient: BitVecValue::zero(width as usize),
+            remainder: BitVecValue::zero(width as usize),
             update: BinOpUpdate::None,
             queue: ShiftBuffer::default(),
             logger: logging::new_sublogger(name),
@@ -274,39 +274,45 @@ impl<const SIGNED: bool> Named for StdDivPipe<SIGNED> {
 }
 
 impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let out = match self.update.take() {
             BinOpUpdate::None => {
                 self.queue.reset();
                 vec![
                     (ir::Id::from("out_quotient"), self.quotient.clone()),
                     (ir::Id::from("out_remainder"), self.remainder.clone()),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Reset => {
                 self.queue.reset();
                 vec![
-                    (ir::Id::from("out_quotient"), Value::zeroes(self.width)),
-                    (ir::Id::from("out_remainder"), Value::zeroes(self.width)),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (
+                        ir::Id::from("out_quotient"),
+                        BitVecValue::zero(self.width),
+                    ),
+                    (
+                        ir::Id::from("out_remainder"),
+                        BitVecValue::zero(self.width),
+                    ),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Value(left, right) => {
                 let (q, r) = if right.as_unsigned() != 0_u32.into() {
                     let (q, overflow) = if SIGNED {
-                        Value::from_checked(
+                        BitVecValue::from_checked(
                             left.as_signed() / right.as_signed(),
                             self.width,
                         )
                     } else {
-                        Value::from_checked(
+                        BitVecValue::from_checked(
                             left.as_unsigned() / right.as_unsigned(),
                             self.width,
                         )
                     };
                     let r = if SIGNED {
-                        Value::from(
+                        BitVecValue::from(
                             left.as_signed()
                                 - right.as_signed()
                                     * floored_division(
@@ -316,7 +322,7 @@ impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
                             self.width,
                         )
                     } else {
-                        Value::from(
+                        BitVecValue::from(
                             left.as_unsigned().rem_euclid(right.as_unsigned()),
                             self.width,
                         )
@@ -338,7 +344,7 @@ impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
                     (q, r)
                 } else {
                     warn!(self.logger, "Division by zero");
-                    (Value::zeroes(self.width), Value::zeroes(self.width))
+                    (BitVecValue::zero(self.width), BitVecValue::zero(self.width))
                 };
 
                 if let Some((q, r)) = self.queue.shift(Some((q, r))) {
@@ -347,13 +353,13 @@ impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
                     vec![
                         (ir::Id::from("out_quotient"), q),
                         (ir::Id::from("out_remainder"), r),
-                        (ir::Id::from("done"), Value::bit_high()),
+                        (ir::Id::from("done"), BitVecValue::tru()),
                     ]
                 } else {
                     vec![
                         (ir::Id::from("out_quotient"), self.quotient.clone()),
                         (ir::Id::from("out_remainder"), self.remainder.clone()),
-                        (ir::Id::from("done"), Value::bit_low()),
+                        (ir::Id::from("done"), BitVecValue::fals()),
                     ]
                 }
             }
@@ -366,7 +372,7 @@ impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
         false
     }
 
-    fn validate(&self, inputs: &[(calyx_ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(calyx_ir::Id, &BitVecValue)]) {
         for (id, v) in inputs {
             match id.as_ref() {
                 "left" => assert_eq!(v.len() as u64, self.width),
@@ -380,8 +386,8 @@ impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
 
     fn execute(
         &mut self,
-        inputs: &[(calyx_ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(calyx_ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             left: "left",
             right: "right",
@@ -402,14 +408,14 @@ impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
 
     fn reset(
         &mut self,
-        _: &[(calyx_ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _: &[(calyx_ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.update.clear();
         self.queue.reset();
         Ok(vec![
             (ir::Id::from("out_quotient"), self.quotient.clone()),
             (ir::Id::from("out_remainder"), self.remainder.clone()),
-            (ir::Id::from("done"), Value::bit_low()),
+            (ir::Id::from("done"), BitVecValue::fals()),
         ])
     }
 
@@ -426,12 +432,12 @@ impl<const SIGNED: bool> Primitive for StdDivPipe<SIGNED> {
 }
 
 pub struct StdFpMultPipe<const SIGNED: bool> {
-    pub width: u64,
-    pub int_width: u64,
-    pub frac_width: u64,
-    pub product: Value,
+    pub width: WidthInt,
+    pub int_width: WidthInt,
+    pub frac_width: WidthInt,
+    pub product: BitVecValue,
     update: BinOpUpdate,
-    queue: ShiftBuffer<Value, 2>,
+    queue: ShiftBuffer<BitVecValue, 2>,
     full_name: ir::Id,
     logger: logging::Logger,
 }
@@ -448,7 +454,7 @@ impl<const SIGNED: bool> StdFpMultPipe<SIGNED> {
             width,
             int_width,
             frac_width,
-            product: Value::zeroes(width),
+            product: BitVecValue::zero(width),
             update: BinOpUpdate::None,
             queue: ShiftBuffer::default(),
             logger: logging::new_sublogger(full_name),
@@ -475,30 +481,30 @@ impl<const SIGNED: bool> Named for StdFpMultPipe<SIGNED> {
 }
 
 impl<const SIGNED: bool> Primitive for StdFpMultPipe<SIGNED> {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let out = match self.update.take() {
             BinOpUpdate::None => {
                 self.queue.reset();
                 vec![
                     (ir::Id::from("out"), self.product.clone()),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Reset => {
                 self.queue.reset();
                 vec![
-                    (ir::Id::from("out"), Value::zeroes(self.width)),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (ir::Id::from("out"), BitVecValue::zero(self.width)),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Value(left, right) => {
                 let backing_val = if SIGNED {
-                    Value::from(
+                    BitVecValue::from(
                         left.as_signed() * right.as_signed(),
                         2 * self.width,
                     )
                 } else {
-                    Value::from(
+                    BitVecValue::from(
                         left.as_unsigned() * right.as_unsigned(),
                         2 * self.width,
                     )
@@ -566,12 +572,12 @@ impl<const SIGNED: bool> Primitive for StdFpMultPipe<SIGNED> {
                     self.product = out.clone();
                     vec![
                         (ir::Id::from("out"), out),
-                        (ir::Id::from("done"), Value::bit_high()),
+                        (ir::Id::from("done"), BitVecValue::tru()),
                     ]
                 } else {
                     vec![
-                        (ir::Id::from("out"), Value::zeroes(self.width)),
-                        (ir::Id::from("done"), Value::bit_low()),
+                        (ir::Id::from("out"), BitVecValue::zero(self.width)),
+                        (ir::Id::from("done"), BitVecValue::fals()),
                     ]
                 }
             }
@@ -584,7 +590,7 @@ impl<const SIGNED: bool> Primitive for StdFpMultPipe<SIGNED> {
         false
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate![inputs;
             left: self.width,
             right: self.width,
@@ -595,8 +601,8 @@ impl<const SIGNED: bool> Primitive for StdFpMultPipe<SIGNED> {
 
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             left: "left",
             right: "right",
@@ -616,33 +622,33 @@ impl<const SIGNED: bool> Primitive for StdFpMultPipe<SIGNED> {
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.update.clear();
         self.queue.reset();
         Ok(vec![
             (ir::Id::from("out"), self.product.clone()),
-            (ir::Id::from("done"), Value::bit_low()),
+            (ir::Id::from("done"), BitVecValue::fals()),
         ])
     }
 }
 
 pub struct StdFpDivPipe<const SIGNED: bool> {
-    pub width: u64,
-    pub int_width: u64,
-    pub frac_width: u64,
-    pub quotient: Value,
-    pub remainder: Value,
+    pub width: WidthInt,
+    pub int_width: WidthInt,
+    pub frac_width: WidthInt,
+    pub quotient: BitVecValue,
+    pub remainder: BitVecValue,
     update: BinOpUpdate,
-    queue: ShiftBuffer<(Value, Value), 2>,
+    queue: ShiftBuffer<(BitVecValue, BitVecValue), 2>,
     full_name: ir::Id,
     logger: logging::Logger,
 }
 impl<const SIGNED: bool> StdFpDivPipe<SIGNED> {
     pub fn from_constants(
-        width: u64,
-        int_width: u64,
-        frac_width: u64,
+        width: WidthInt,
+        int_width: WidthInt,
+        frac_width: WidthInt,
         name: ir::Id,
     ) -> Self {
         assert_eq!(width, int_width + frac_width);
@@ -650,8 +656,8 @@ impl<const SIGNED: bool> StdFpDivPipe<SIGNED> {
             width,
             int_width,
             frac_width,
-            quotient: Value::zeroes(width),
-            remainder: Value::zeroes(width),
+            quotient: BitVecValue::zero(width),
+            remainder: BitVecValue::zero(width),
             update: BinOpUpdate::None,
             queue: ShiftBuffer::default(),
             logger: logging::new_sublogger(name),
@@ -678,34 +684,40 @@ impl<const SIGNED: bool> Named for StdFpDivPipe<SIGNED> {
 }
 
 impl<const SIGNED: bool> Primitive for StdFpDivPipe<SIGNED> {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let out = match self.update.take() {
             BinOpUpdate::None => {
                 self.queue.reset();
                 vec![
                     (ir::Id::from("out_quotient"), self.quotient.clone()),
                     (ir::Id::from("out_remainder"), self.remainder.clone()),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Reset => {
                 self.queue.reset();
                 vec![
-                    (ir::Id::from("out_quotient"), Value::zeroes(self.width)),
-                    (ir::Id::from("out_remainder"), Value::zeroes(self.width)),
-                    (ir::Id::from("done"), Value::bit_low()),
+                    (
+                        ir::Id::from("out_quotient"),
+                        BitVecValue::zero(self.width),
+                    ),
+                    (
+                        ir::Id::from("out_remainder"),
+                        BitVecValue::zero(self.width),
+                    ),
+                    (ir::Id::from("done"), BitVecValue::fals()),
                 ]
             }
             BinOpUpdate::Value(left, right) => {
                 let (q, r) = if right.as_u64() != 0 {
                     if SIGNED {
                         (
-                            Value::from(
+                            BitVecValue::from(
                                 (left.as_signed() << self.frac_width as usize)
                                     / right.as_signed(),
                                 self.width,
                             ),
-                            Value::from(
+                            BitVecValue::from(
                                 left.as_signed()
                                     - right.as_signed()
                                         * floored_division(
@@ -717,13 +729,13 @@ impl<const SIGNED: bool> Primitive for StdFpDivPipe<SIGNED> {
                         )
                     } else {
                         (
-                            Value::from(
+                            BitVecValue::from(
                                 (left.as_unsigned()
                                     << self.frac_width as usize)
                                     / right.as_unsigned(),
                                 self.width,
                             ),
-                            Value::from(
+                            BitVecValue::from(
                                 left.as_unsigned()
                                     .rem_euclid(right.as_unsigned()),
                                 self.width,
@@ -732,7 +744,7 @@ impl<const SIGNED: bool> Primitive for StdFpDivPipe<SIGNED> {
                     }
                 } else {
                     warn!(self.logger, "Division by zero");
-                    (Value::zeroes(self.width), Value::zeroes(self.width))
+                    (BitVecValue::zero(self.width), BitVecValue::zero(self.width))
                 };
 
                 if let Some((q, r)) = self.queue.shift(Some((q, r))) {
@@ -741,13 +753,13 @@ impl<const SIGNED: bool> Primitive for StdFpDivPipe<SIGNED> {
                     vec![
                         (ir::Id::from("out_quotient"), q),
                         (ir::Id::from("out_remainder"), r),
-                        (ir::Id::from("done"), Value::bit_high()),
+                        (ir::Id::from("done"), BitVecValue::tru()),
                     ]
                 } else {
                     vec![
                         (ir::Id::from("out_quotient"), self.quotient.clone()),
                         (ir::Id::from("out_remainder"), self.remainder.clone()),
-                        (ir::Id::from("done"), Value::bit_low()),
+                        (ir::Id::from("done"), BitVecValue::fals()),
                     ]
                 }
             }
@@ -759,7 +771,7 @@ impl<const SIGNED: bool> Primitive for StdFpDivPipe<SIGNED> {
         false
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate![inputs;
             left: self.width,
             right: self.width,
@@ -770,8 +782,8 @@ impl<const SIGNED: bool> Primitive for StdFpDivPipe<SIGNED> {
 
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             left: "left",
             right: "right",
@@ -792,14 +804,14 @@ impl<const SIGNED: bool> Primitive for StdFpDivPipe<SIGNED> {
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.update.clear();
         self.queue.reset();
         Ok(vec![
             (ir::Id::from("out_quotient"), self.quotient.clone()),
             (ir::Id::from("out_remainder"), self.remainder.clone()),
-            (ir::Id::from("done"), Value::bit_low()),
+            (ir::Id::from("done"), BitVecValue::fals()),
         ])
     }
 }
@@ -839,8 +851,8 @@ pub(crate) fn int_sqrt(i: &UBig) -> UBig {
 type SqrtUpdate = super::memories::RegUpdate;
 
 pub struct StdSqrt<const FP: bool> {
-    pub width: u64,
-    pub output: Value,
+    pub width: WidthInt,
+    pub output: BitVecValue,
     frac_width: u64,
     update: SqrtUpdate,
     name: ir::Id,
@@ -849,7 +861,8 @@ pub struct StdSqrt<const FP: bool> {
 impl<const FP: bool> StdSqrt<FP> {
     pub fn new(params: &ir::Binding, name: ir::Id) -> Self {
         let width = get_param(params, "WIDTH")
-            .expect("Missing `WIDTH` param from std_sqrt binding");
+            .expect("Missing `WIDTH` param from std_sqrt binding")
+            as WidthInt;
         let frac_width = if FP {
             get_param(params, "FRAC_WIDTH")
                 .expect("Missing `FRAC_WIDTH` param from std_sqrt binding")
@@ -860,7 +873,7 @@ impl<const FP: bool> StdSqrt<FP> {
         Self {
             width,
             frac_width,
-            output: Value::zeroes(width),
+            output: BitVecValue::zero(width),
             update: SqrtUpdate::None,
             name,
         }
@@ -874,17 +887,17 @@ impl<const FP: bool> Named for StdSqrt<FP> {
 }
 
 impl<const FP: bool> Primitive for StdSqrt<FP> {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let out = match self.update.take() {
             SqrtUpdate::None => vec![
                 ("out".into(), self.output.clone()),
-                ("done".into(), Value::bit_low()),
+                ("done".into(), BitVecValue::fals()),
             ],
             SqrtUpdate::Reset => {
-                self.output = Value::zeroes(self.width);
+                self.output = BitVecValue::zero(self.width);
                 vec![
                     ("out".into(), self.output.clone()),
-                    ("done".into(), Value::bit_low()),
+                    ("done".into(), BitVecValue::fals()),
                 ]
             }
             SqrtUpdate::Value(v) => {
@@ -892,15 +905,15 @@ impl<const FP: bool> Primitive for StdSqrt<FP> {
                     let val = int_sqrt(
                         &(v.as_unsigned() << (self.frac_width as usize)),
                     );
-                    Value::from(val, self.width)
+                    BitVecValue::from(val, self.width)
                 } else {
                     let val = int_sqrt(&v.as_unsigned());
-                    Value::from(val, self.width)
+                    BitVecValue::from(val, self.width)
                 };
 
                 vec![
                     ("out".into(), self.output.clone()),
-                    ("done".into(), Value::bit_high()),
+                    ("done".into(), BitVecValue::tru()),
                 ]
             }
         };
@@ -912,7 +925,7 @@ impl<const FP: bool> Primitive for StdSqrt<FP> {
         false
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         validate![inputs;
             r#in: self.width,
             go: 1
@@ -921,8 +934,8 @@ impl<const FP: bool> Primitive for StdSqrt<FP> {
 
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         get_inputs![inputs;
             in_val: "in",
             go: "go",
@@ -942,12 +955,12 @@ impl<const FP: bool> Primitive for StdSqrt<FP> {
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         self.update.clear();
         Ok(vec![
             ("out".into(), self.output.clone()),
-            ("done".into(), Value::bit_low()),
+            ("done".into(), BitVecValue::fals()),
         ])
     }
 }

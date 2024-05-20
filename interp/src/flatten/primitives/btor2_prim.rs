@@ -5,10 +5,9 @@ use crate::flatten::primitives::prim_trait::{Primitive, UpdateResult};
 use crate::flatten::primitives::{declare_ports, ports};
 use crate::flatten::structures::environment::PortMap;
 
-use crate::values::Value;
-
 // use std::env;
 
+use baa::{BitVecValue, WidthInt};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -37,19 +36,19 @@ impl<'a> Primitive for MyBtor2Add<'a> {
         let input_map = HashMap::from([
             (
                 "left".to_string(),
-                port_map[left].as_usize().unwrap_or(0).to_string(),
+                port_map[left].as_u64().unwrap_or(0).to_string(),
             ),
             (
                 "right".to_string(),
-                port_map[right].as_usize().unwrap_or(0).to_string(),
+                port_map[right].as_u64().unwrap_or(0).to_string(),
             ),
         ]);
         match self.program.borrow_mut().run(input_map) {
             Ok(output_map) => Ok(port_map.insert_val(
                 out,
-                AssignedValue::cell_value(Value::from(
-                    output_map["out"],
-                    self.width,
+                AssignedValue::cell_value(BitVecValue::from_u64(
+                    output_map["out"] as u64,
+                    self.width as WidthInt,
                 )),
             )?),
             Err(msg) => {

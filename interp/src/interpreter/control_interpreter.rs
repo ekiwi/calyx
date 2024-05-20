@@ -16,8 +16,8 @@ use crate::{
     structures::state_views::{
         CompositeView, MutCompositeView, MutStateView, StateView,
     },
-    values::Value,
 };
+use baa::{BitVecOps, BitVecValue};
 use calyx_ir::{self as ir, Assignment, Guard, RRC};
 use calyx_utils::WithPos;
 use std::collections::HashSet;
@@ -193,7 +193,7 @@ impl EnableInterpreter {
         let enable: EnableHolder = enable.into();
 
         if let Some(go) = enable.go_port() {
-            env.insert(go, Value::bit_high())
+            env.insert(go, BitVecValue::tru())
         }
 
         let assigns = enable.clone();
@@ -211,12 +211,12 @@ impl EnableInterpreter {
 impl EnableInterpreter {
     fn reset(mut self) -> InterpreterResult<InterpreterState> {
         if let Some(go) = self.enable.go_port() {
-            self.interp.get_mut_env().insert(go, Value::bit_low())
+            self.interp.get_mut_env().insert(go, BitVecValue::fals())
         }
 
         self.interp.reset()
     }
-    fn get(&self, port: impl AsRaw<ir::Port>) -> &Value {
+    fn get(&self, port: impl AsRaw<ir::Port>) -> &BitVecValue {
         self.interp.get(port)
     }
 }
@@ -600,7 +600,7 @@ impl Interpreter for IfInterpreter {
                 {
                     interp.converge()?;
                     let branch_condition =
-                        interp.get(&self.ctrl_if.port).as_bool();
+                        interp.get(&self.ctrl_if.port).to_bool().unwrap();
 
                     let env = interp.deconstruct()?;
 
@@ -627,8 +627,10 @@ impl Interpreter for IfInterpreter {
                 if let IfFsm::ConditionPort(env) =
                     std::mem::take(&mut self.state)
                 {
-                    let branch_condition =
-                        env.get_from_port(&self.ctrl_if.port).as_bool();
+                    let branch_condition = env
+                        .get_from_port(&self.ctrl_if.port)
+                        .to_bool()
+                        .unwrap();
 
                     let target = if branch_condition {
                         &self.ctrl_if.tbranch
@@ -875,7 +877,8 @@ impl Interpreter for WhileInterpreter {
                     std::mem::take(&mut self.state)
                 {
                     interp.converge()?;
-                    let branch_condition = interp.get(&self.wh.port).as_bool();
+                    let branch_condition =
+                        interp.get(&self.wh.port).to_bool().unwrap();
                     let env = interp.deconstruct()?;
 
                     self.process_branch(branch_condition, env);
@@ -889,7 +892,7 @@ impl Interpreter for WhileInterpreter {
                 if let WhileFsm::CondPort(env) = std::mem::take(&mut self.state)
                 {
                     let branch_condition =
-                        env.get_from_port(&self.wh.port).as_bool();
+                        env.get_from_port(&self.wh.port).to_bool().unwrap();
                     self.process_branch(branch_condition, env);
                     Ok(())
                 } else {
@@ -1045,7 +1048,7 @@ impl InvokeInterpreter {
         let go_port = comp_cell.get_unique_with_attr(ir::NumAttr::Go).unwrap();
         // insert one into the go_port
         // should probably replace with an actual assignment from a constant one
-        env.insert(go_port, Value::bit_high());
+        env.insert(go_port, BitVecValue::tru());
 
         let comp_done_port =
             comp_cell.get_unique_with_attr(ir::NumAttr::Done).unwrap();
@@ -1087,7 +1090,7 @@ impl Interpreter for InvokeInterpreter {
             .unwrap();
         // insert one into the go_port
         // should probably replace with an actual assignment from a constant one
-        env.insert(go_port, Value::bit_low());
+        env.insert(go_port, BitVecValue::fals());
 
         Ok(env)
     }

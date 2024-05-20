@@ -14,4 +14,4 @@ mod utils;
 
 pub mod flatten;
 
-pub use structures::{environment, stk_env, values};
+pub use structures::{environment, stk_env};

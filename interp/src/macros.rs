@@ -2,14 +2,13 @@
 ///
 /// ```
 ///  # use interp::comb_primitive;
-///  # use interp::values::Value;
 ///  # use interp::primitives::Primitive;
 /// comb_primitive!(StdAdd[width](left: width, right: width) -> (out: width) {
 ///   let left_64 = left.as_u64();
 ///   let right_64 = right.as_u64();
 ///   let init_val = left_64 + right_64;
 ///   let bitwidth = left.width();
-///   Ok(Value::from(init_val, bitwidth))
+///   Ok(baa::ValueOwned::from_u64(init_val, bitwidth))
 /// });
 ///
 /// ```
@@ -136,7 +135,7 @@ macro_rules! comb_primitive {
         impl $crate::primitives::Primitive for $name {
 
             //null-op; comb don't use do_tick()
-            fn do_tick(&mut self) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, $crate::values::Value)>>{
+            fn do_tick(&mut self) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, baa::BitVecValue)>>{
                 Ok(vec![])
             }
 
@@ -144,7 +143,7 @@ macro_rules! comb_primitive {
 
             fn validate(
                 &self,
-                inputs: &[(calyx_ir::Id, &$crate::values::Value)]
+                inputs: &[(calyx_ir::Id, &baa::BitVecValue)]
             ) {
                 for (id, v) in inputs {
                     match id.as_ref() {
@@ -157,12 +156,12 @@ macro_rules! comb_primitive {
             #[allow(non_snake_case,unused)]
             fn execute(
                 &mut self,
-                inputs: &[(calyx_ir::Id, &$crate::values::Value)],
-            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, $crate::values::Value)>> {
+                inputs: &[(calyx_ir::Id, &baa::BitVecValue)],
+            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, baa::BitVecValue)>> {
 
                 #[derive(Default)]
                 struct Ports<'a> {
-                    $( $port: Option<&'a $crate::values::Value> ),+
+                    $( $port: Option<&'a baa::BitVecValue> ),+
                 }
 
                 let mut base = Ports::default();
@@ -174,7 +173,7 @@ macro_rules! comb_primitive {
                     }
                 }
 
-                let exec_func = |$($param: u64),+, $( $port: &Value ),+, $log: &$crate::logging::Logger, $full_name:&calyx_ir::Id| -> $crate::errors::InterpreterResult<Value> {
+                let exec_func = |$($param: u64),+, $( $port: &baa::BitVecValue ),+, $log: &$crate::logging::Logger, $full_name:&calyx_ir::Id| -> $crate::errors::InterpreterResult<baa::BitVecValue> {
                     $execute
                 };
 
@@ -190,15 +189,15 @@ macro_rules! comb_primitive {
 
                 return Ok(vec![
                     $( ($crate::in_fix!($out).into(), $out) ),+
-                ])
+                ]);
 
             }
 
             // Combinational components cannot be reset
             fn reset(
                 &mut self,
-                inputs: &[(calyx_ir::Id, &$crate::values::Value)],
-            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, $crate::values::Value)>> {
+                inputs: &[(calyx_ir::Id, &baa::BitVecValue)],
+            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, baa::BitVecValue)>> {
                 self.execute(inputs)
             }
 
@@ -267,7 +266,7 @@ macro_rules! comb_primitive {
         impl $crate::primitives::Primitive for $name {
 
             //null-op; comb don't use do_tick()
-            fn do_tick(&mut self) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, $crate::values::Value)>>{
+            fn do_tick(&mut self) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, baa::BitVecValue)>>{
                 Ok(vec![])
             }
 
@@ -275,7 +274,7 @@ macro_rules! comb_primitive {
 
             fn validate(
                 &self,
-                inputs: &[(calyx_ir::Id, &$crate::values::Value)]
+                inputs: &[(calyx_ir::Id, &baa::BitVecValue)]
             ) {
                 for (id, v) in inputs {
                     match id.as_ref() {
@@ -288,12 +287,12 @@ macro_rules! comb_primitive {
             #[allow(non_snake_case,unused)]
             fn execute(
                 &mut self,
-                inputs: &[(calyx_ir::Id, &$crate::values::Value)],
-            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, $crate::values::Value)>> {
+                inputs: &[(calyx_ir::Id, &baa::BitVecValue)],
+            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, baa::BitVecValue)>> {
 
                 #[derive(Default)]
                 struct Ports<'a> {
-                    $( $port: Option<&'a $crate::values::Value> ),+
+                    $( $port: Option<&'a baa::BitVecValue> ),+
                 }
 
                 let mut base = Ports::default();
@@ -305,7 +304,7 @@ macro_rules! comb_primitive {
                     }
                 }
 
-                let exec_func = |$($param: u64),+, $( $port: &Value ),+, $log: &$crate::logging::Logger, $full_name:&calyx_ir::Id, $flag: bool| -> $crate::errors::InterpreterResult<Value> {
+                let exec_func = |$($param: u64),+, $( $port: &baa::BitVecValue ),+, $log: &$crate::logging::Logger, $full_name:&calyx_ir::Id, $flag: bool| -> $crate::errors::InterpreterResult<baa::BitVecValue> {
                     $execute
                 };
 
@@ -322,15 +321,15 @@ macro_rules! comb_primitive {
 
                 return Ok(vec![
                     $( ($crate::in_fix!($out).into(), $out) ),+
-                ])
+                ]);
 
             }
 
             // Combinational components cannot be reset
             fn reset(
                 &mut self,
-                inputs: &[(calyx_ir::Id, &$crate::values::Value)],
-            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, $crate::values::Value)>> {
+                inputs: &[(calyx_ir::Id, &baa::BitVecValue)],
+            ) -> $crate::errors::InterpreterResult<Vec<(calyx_ir::Id, baa::BitVecValue)>> {
                 self.execute(inputs)
             }
 
@@ -379,7 +378,7 @@ macro_rules! lit_or_id {
 /// ```
 macro_rules! port_bindings {
     ( $binds: ident; $( $port: ident -> ($val: tt, $width: tt) ),+ ) => {
-        $( let $port = $crate::values::Value::from($crate::lit_or_id!($val), $crate::lit_or_id!($width)); )+
+        $( let $port = baa::BitVecValue::from($crate::lit_or_id!($val), $crate::lit_or_id!($width)); )+
         let $binds = vec![ $( (calyx_ir::Id::from($crate::in_fix!($port)), &$port) ),+ ];
     }
 }
@@ -387,7 +386,6 @@ macro_rules! port_bindings {
 /// Helper macro to generate validation checks for the input passed to primitives
 /// ```
 ///  # use interp::validate;
-///  # use interp::values::Value;
 ///  # let input = [("left", [4,4,4,4])];
 ///  # let inputs = &input;
 ///  # let width = 4;
@@ -402,7 +400,7 @@ macro_rules! validate {
     ( $inputs:ident; $( $port:ident : $width:expr ),+ ) => {
         for (id, v) in $inputs {
             match id.as_ref() {
-                $( $crate::in_fix!($port) => assert_eq!(v.len() as u64, $width) ),+,
+                $( $crate::in_fix!($port) => assert_eq!(v.width() as u64, $width) ),+,
                 p => unreachable!("Unknown port: {}", p),
             }
         }
@@ -413,7 +411,6 @@ macro_rules! validate {
 /// primitives, does not error on unknown ports
 /// ```
 ///  # use interp::validate_friendly;
-///  # use interp::values::Value;
 ///  # let input = [("left", [4,4,4,4])];
 ///  # let inputs = &input;
 ///  # let width = 4;
@@ -428,7 +425,7 @@ macro_rules! validate_friendly {
     ( $inputs:ident; $( $port:ident : $width:expr ),+ ) => {
         for (id, v) in $inputs {
             match id.as_ref() {
-                $( $crate::in_fix!($port) => assert_eq!(v.len() as u64, $width) ),+,
+                $( $crate::in_fix!($port) => assert_eq!(v.width() as u64, $width) ),+,
                 _ => {},
             }
         }

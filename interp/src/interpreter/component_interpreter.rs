@@ -18,8 +18,8 @@ use crate::{
     },
     structures::state_views::{MutStateView, StateView},
     utils::AsRaw,
-    values::Value,
 };
+use baa::{BitVecOps, BitVecValue, WidthInt};
 use calyx_ir::{self as ir, Port, RRC};
 use std::rc::Rc;
 
@@ -163,7 +163,7 @@ impl ComponentInterpreter {
         }
     }
 
-    fn look_up_outputs(&self) -> Vec<(ir::Id, crate::values::Value)> {
+    fn look_up_outputs(&self) -> Vec<(ir::Id, BitVecValue)> {
         let env = self.get_env();
         self.output_ports
             .iter()
@@ -176,36 +176,42 @@ impl ComponentInterpreter {
 
     #[inline]
     fn go_is_high(&self) -> bool {
-        self.get_env().lookup(self.go_port.as_raw()).as_bool()
+        self.get_env()
+            .lookup(self.go_port.as_raw())
+            .to_bool()
+            .unwrap()
     }
 
     #[inline]
     fn done_is_high(&self) -> bool {
-        self.get_env().lookup(self.done_port.as_raw()).as_bool()
+        self.get_env()
+            .lookup(self.done_port.as_raw())
+            .to_bool()
+            .unwrap()
     }
 
     #[inline]
     pub fn set_go_high(&mut self) {
         let raw = self.go_port.as_raw();
-        self.get_env_mut().insert(raw, Value::bit_high())
+        self.get_env_mut().insert(raw, BitVecValue::tru())
     }
 
     #[inline]
     pub fn set_go_low(&mut self) {
         let raw = self.go_port.as_raw();
-        self.get_env_mut().insert(raw, Value::bit_low())
+        self.get_env_mut().insert(raw, BitVecValue::fals())
     }
 
     #[inline]
     fn set_done_high(&mut self) {
         let raw = self.done_port.as_raw();
-        self.get_env_mut().insert(raw, Value::bit_high())
+        self.get_env_mut().insert(raw, BitVecValue::tru())
     }
 
     #[inline]
     fn set_done_low(&mut self) {
         let raw = self.done_port.as_raw();
-        self.get_env_mut().insert(raw, Value::bit_low())
+        self.get_env_mut().insert(raw, BitVecValue::fals())
     }
 
     /// Interpret a calyx program from the root
@@ -344,7 +350,7 @@ impl Named for ComponentInterpreter {
 }
 
 impl Primitive for ComponentInterpreter {
-    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, Value)>> {
+    fn do_tick(&mut self) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let currently_done = self.done_is_high();
 
         // this component has been done for a cycle
@@ -367,21 +373,21 @@ impl Primitive for ComponentInterpreter {
         false
     }
 
-    fn validate(&self, inputs: &[(ir::Id, &crate::values::Value)]) {
+    fn validate(&self, inputs: &[(ir::Id, &BitVecValue)]) {
         for (name, value) in inputs {
             let port = self
                 .input_ports
                 .iter()
                 .find(|x| x.borrow().name == name)
                 .expect("Component given non-existant input");
-            assert_eq!(port.borrow().width, value.width())
+            assert_eq!(port.borrow().width as WidthInt, value.width())
         }
     }
 
     fn execute(
         &mut self,
-        inputs: &[(ir::Id, &crate::values::Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, crate::values::Value)>> {
+        inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         let mut assigned = HashSet::new();
         let mut input_vec = inputs
             .iter()
@@ -401,7 +407,7 @@ impl Primitive for ComponentInterpreter {
                 let pt_ref = port.borrow();
                 input_vec.push((
                     port.as_raw(),
-                    Value::zeroes(pt_ref.width as usize),
+                    BitVecValue::zero(pt_ref.width as WidthInt),
                 ));
             }
         }
@@ -418,8 +424,8 @@ impl Primitive for ComponentInterpreter {
 
     fn reset(
         &mut self,
-        _inputs: &[(ir::Id, &crate::values::Value)],
-    ) -> InterpreterResult<Vec<(ir::Id, crate::values::Value)>> {
+        _inputs: &[(ir::Id, &BitVecValue)],
+    ) -> InterpreterResult<Vec<(ir::Id, BitVecValue)>> {
         if self.interp.is_control() {
             if !self.is_done() && !self.go_is_high() {
                 return Ok(self.look_up_outputs());

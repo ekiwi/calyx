@@ -3,7 +3,7 @@ use crate::environment::InterpreterState;
 use crate::errors::{InterpreterError, InterpreterResult};
 use crate::interpreter::utils::get_dest_cells;
 use crate::utils::{AsRaw, PortAssignment, RcOrConst};
-use crate::values::Value;
+use baa::{BitVecOps, BitVecValue, WidthInt};
 use calyx_ir::{self as ir, Assignment, Cell, RRC};
 use std::cell::Ref;
 use std::collections::{HashMap, HashSet};
@@ -164,7 +164,7 @@ impl AssignmentInterpreter {
             self.step_convergence()?;
         }
 
-        let mut update_list: Vec<(RRC<ir::Port>, Value)> = vec![];
+        let mut update_list: Vec<(RRC<ir::Port>, BitVecValue)> = vec![];
 
         for cell in self.cells.iter() {
             if let Some(x) = self
@@ -300,9 +300,9 @@ impl AssignmentInterpreter {
 
                 let old_val = self.state.get_from_port(port);
                 let old_val_width = old_val.width(); //&assignment.dst.borrow().width()
-                let new_val = Value::from(0, old_val_width);
+                let new_val = BitVecValue::zero(old_val_width);
 
-                if old_val.as_unsigned() != 0_u32.into() {
+                if !old_val.is_zero() {
                     if cfg!(feature = "change-based-sim") {
                         let port_ref = &self.port_lookup_map[&port].borrow();
                         if let ir::PortParent::Cell(cell) = &port_ref.parent {
@@ -371,7 +371,7 @@ impl AssignmentInterpreter {
                     // zero
                     self.state.insert(
                         &assign.dst,
-                        Value::zeroes(assign.dst.borrow().width),
+                        BitVecValue::zero(assign.dst.borrow().width as WidthInt),
                     );
                 }
             }
@@ -415,7 +415,7 @@ impl AssignmentInterpreter {
     /// done port exists and is high
     fn done_port_high(&self) -> bool {
         self.done_port
-            .map(|x| self.state.get_from_port(x).as_bool())
+            .map(|x| self.state.get_from_port(x).to_bool().unwrap())
             .unwrap_or(false)
     }
 
@@ -452,14 +452,18 @@ impl AssignmentInterpreter {
         finish_interpretation(env, done_signal, assign_ref.iter())
     }
 
-    pub fn get<P: AsRaw<ir::Port>>(&self, port: P) -> &Value {
+    pub fn get<P: AsRaw<ir::Port>>(&self, port: P) -> &BitVecValue {
         self.state.get_from_port(port)
     }
 
     // This is not currenty relevant for anything, but may be needed later
     // pending adjustments to the primitive contract as we will need the ability
     // to pass new inputs to components
-    pub(super) fn _insert<P: AsRaw<ir::Port>>(&mut self, port: P, val: Value) {
+    pub(super) fn _insert<P: AsRaw<ir::Port>>(
+        &mut self,
+        port: P,
+        val: BitVecValue,
+    ) {
         self.state.insert(port, val)
     }
 
@@ -492,7 +496,7 @@ pub(crate) fn eval_prims<'a, 'b, I: Iterator<Item = &'b RRC<ir::Cell>>>(
     let ref_clone = env.cell_map.clone(); // RC clone
     let mut prim_map = ref_clone.borrow_mut();
 
-    let mut update_list: Vec<(RRC<ir::Port>, Value)> = vec![];
+    let mut update_list: Vec<(RRC<ir::Port>, BitVecValue)> = vec![];
 
     for cell in exec_list {
         let inputs = get_inputs(env, &cell.borrow());
@@ -530,7 +534,7 @@ pub(crate) fn eval_prims<'a, 'b, I: Iterator<Item = &'b RRC<ir::Cell>>>(
 fn get_inputs<'a>(
     env: &'a InterpreterState,
     cell: &ir::Cell,
-) -> Vec<(ir::Id, &'a Value)> {
+) -> Vec<(ir::Id, &'a BitVecValue)> {
     cell.ports
         .iter()
         .filter_map(|p| {
@@ -565,7 +569,7 @@ pub(crate) fn finish_interpretation<
     for &ir::Assignment { dst, .. } in &assigns {
         env.insert(
             &dst.borrow() as &ir::Port as ConstPort,
-            Value::zeroes(dst.borrow().width as usize),
+            BitVecValue::zero(dst.borrow().width as WidthInt),
         );
     }
 
@@ -575,7 +579,7 @@ pub(crate) fn finish_interpretation<
     );
 
     if let Some(done_signal) = done_signal {
-        env.insert(done_signal.as_raw(), Value::bit_low());
+        env.insert(done_signal.as_raw(), BitVecValue::fals());
     }
 
     eval_prims(&mut env, cells.iter(), true)?;
