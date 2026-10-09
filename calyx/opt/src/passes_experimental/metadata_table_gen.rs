@@ -28,13 +28,14 @@ impl Metadata {
         let attr = node.get_mut_attributes();
         let node_pos = attr.copy_span();
         let (f, (line, endline)) = node_pos.get_line_num();
-        let fnum = self.file_ids.get(f).unwrap();
-        let pos = self.src_table.push_position(
-            *fnum,
-            LineNum::new(line as u32),
-            Some(LineNum::new(endline as u32)),
-        );
-        attr.insert_set(calyx_frontend::SetAttr::Pos, pos.value());
+        if let Some(fnum) = self.file_ids.get(f) {
+            let pos = self.src_table.push_position(
+                *fnum,
+                LineNum::new(line as u32),
+                Some(LineNum::new(endline as u32)),
+            );
+            attr.insert_set(calyx_frontend::SetAttr::Pos, pos.value());
+        }
     }
 }
 
