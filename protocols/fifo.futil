@@ -1,0 +1,65 @@
+import "primitives/core.futil";
+import "primitives/memories/seq.futil";
+
+extern "fifo.sv" {
+  primitive fifo[WIDTH, DEPTH](
+    // implicit control
+    @clk clk: 1,
+    @reset reset: 1,
+    @go go: 1,
+    // explicit control
+    // op: 0=push, 1=pop  (idle and reset are mapped to implicit control)
+    // value only matters when go is active, so can be data
+    @data op: 1, 
+    // data
+    @data in: WIDTH,
+  ) -> (
+    // implicit control
+    @done done: 1,
+    // data
+    @data out: WIDTH,
+  );
+}
+
+
+component main() -> () {
+  cells {
+    @external mem = seq_mem_d1(32, 10, 4);
+    count = std_reg(4);
+    zero = std_const(4, 0);
+    count_add = std_add(4);
+    fifo = fifo(32, 10);
+    count_32 = std_pad(4, 32);
+  }
+
+  wires {
+    group incr {
+      count.write_en = 1'b1;
+      count.in = count_add.out;
+      count_add.left = count.out;
+      count_add.right = 4'b1;
+      incr[done] = count.done? 1'b1;
+    }
+    count_32.in = count.out;
+  }
+
+  control {
+    seq {
+      invoke count(in=4'd0)();
+      // push 10 values to fifo
+      repeat 10 {
+        invoke fifo(op=1'b0, in=count_32.out)();
+        incr;
+      }
+      // pop 10 values from fifo and write to output
+      invoke count(in=4'd0)();
+      repeat 10 {
+        invoke fifo(op=1'b1)();
+        invoke mem(addr0=count.out, write_en=1'b1, write_data=fifo.out)();
+        incr;
+      }
+        
+    
+    }    
+  }
+}
