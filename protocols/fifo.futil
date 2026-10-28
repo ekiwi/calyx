@@ -1,8 +1,8 @@
 import "primitives/core.futil";
 import "primitives/memories/seq.futil";
 
-extern "fifo.sv" {
-  primitive fifo[WIDTH, DEPTH](
+extern "bind.sv" {
+  primitive fifo(
     // implicit control
     @clk clk: 1,
     @reset reset: 1,
@@ -12,12 +12,12 @@ extern "fifo.sv" {
     // value only matters when go is active, so can be data
     @data op: 1, 
     // data
-    @data in: WIDTH,
+    @data push_input: 32,
   ) -> (
     // implicit control
     @done done: 1,
     // data
-    @data out: WIDTH,
+    @data pop_output: 32,
   );
 }
 
@@ -28,7 +28,7 @@ component main() -> () {
     count = std_reg(4);
     zero = std_const(4, 0);
     count_add = std_add(4);
-    fifo = fifo(32, 10);
+    fifo = fifo();
     count_32 = std_pad(4, 32);
   }
 
@@ -48,14 +48,14 @@ component main() -> () {
       invoke count(in=4'd0)();
       // push 10 values to fifo
       repeat 10 {
-        invoke fifo(op=1'b0, in=count_32.out)();
+        invoke fifo(op=1'b0, push_input=count_32.out)();
         incr;
       }
       // pop 10 values from fifo and write to output
       invoke count(in=4'd0)();
       repeat 10 {
         invoke fifo(op=1'b1)();
-        invoke mem(addr0=count.out, write_en=1'b1, write_data=fifo.out)();
+        invoke mem(addr0=count.out, write_en=1'b1, write_data=fifo.pop_output)();
         incr;
       }
         
