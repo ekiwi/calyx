@@ -371,6 +371,7 @@ module bsg_mem_1rw_sync_synth
 
    always_ff @(negedge clk_i)
      if (v_i)
+       /* verilator lint_off WIDTHEXPAND */
        assert ( (v_i !== 1'b1) || (reset_i === 'X) || (reset_i === 1'b1) || (addr_i < els_p))
          else $error("Invalid address %x to %m of size %x (reset_i = %b, v_i = %b, clk_i = %b)\n", addr_i, els_p, reset_i, v_i, clk_i);
    // synopsys translate_on
@@ -517,6 +518,7 @@ module bsg_fifo_1rw_large #(parameter width_p         = -1
          end
 
 
+   /* verilator lint_off WIDTHEXPAND */
    wire [31:0] num_elements_debug = (fifo_empty
                                      ? 0
                                      : (fifo_full
