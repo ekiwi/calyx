@@ -1,4 +1,3 @@
-// this file was generated from a protocol using calyx-bind
 module fifo(
   input  logic clk,   // global clock
   input  logic reset, // 1-cycle active-high reset
@@ -50,6 +49,9 @@ module fifo(
   // connect output arguments to registers that capture them
   assign pop_output = _output_value;
 
+  // done is true iff we are in the done state
+  assign done = state == ST_DONE;
+
   always_comb begin
     // register default to their previous values
     next_state = state;
@@ -77,8 +79,8 @@ module fifo(
         dut_v_i = ~(~(go));
         dut_enq_not_deq_i = ~((go) & (op));
         dut_reset_i = 1'b0;
-        if ((((go) & (~(op))) | ((go) & (op))) & (~(go)))
-          if ((go) & (~(op)))
+        // assert_false((((go) & (~(op))) | ((go) & (op))) & (~(go)))
+        if ((go) & (~(op)))
           next_state = ST_DONE;
         if ((go) & (op))
           next_state = ST_NODE_2;
@@ -102,6 +104,7 @@ module fifo(
     end
   end
 endmodule
+
 
 
 
